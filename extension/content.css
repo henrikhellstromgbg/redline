@@ -1,0 +1,240 @@
+:host {
+  --rl-red: #dc2626;
+  --rl-red-dark: #991b1b;
+  --rl-ink: #18181b;
+  --rl-muted: #52525b;
+  --rl-border: #a1a1aa;
+  --rl-paper: #ffffff;
+  --rl-success: #166534;
+  all: initial;
+  color: var(--rl-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.rl-shell,
+.rl-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.rl-shell {
+  z-index: 0;
+}
+
+.rl-capture {
+  z-index: 2;
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.rl-capture[data-state="armed"] {
+  background: rgb(220 38 38 / 3%);
+}
+
+.rl-frame {
+  position: fixed;
+  z-index: 1;
+  border: 2px solid var(--rl-red);
+  border-radius: 0;
+  background: rgb(220 38 38 / 3%);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 72%);
+  pointer-events: none;
+}
+
+.rl-frame--draft {
+  z-index: 3;
+  border-style: dashed;
+  background: rgb(220 38 38 / 7%);
+}
+
+.rl-frame__badge {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  place-items: center;
+  border: 2px solid var(--rl-red);
+  border-radius: 0;
+  background: var(--rl-red);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+}
+
+.rl-frame[data-highlight="true"] {
+  border-width: 3px;
+  box-shadow: 0 0 0 4px rgb(220 38 38 / 28%);
+  animation: rl-highlight 700ms ease-out 2 alternate;
+}
+
+.rl-editor {
+  position: fixed;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  border: 1px solid var(--rl-border);
+  border-radius: 6px;
+  background: var(--rl-paper);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+  color: var(--rl-ink);
+  pointer-events: auto;
+}
+
+.rl-editor__label {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.rl-editor__input {
+  display: block;
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid #71717a;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--rl-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.rl-editor__input::placeholder {
+  color: #71717a;
+}
+
+.rl-editor__hint,
+.rl-editor__error {
+  margin: 0;
+  color: var(--rl-muted);
+  font-size: 12px;
+}
+
+.rl-editor__error {
+  color: var(--rl-red-dark);
+  font-size: 14px;
+}
+
+.rl-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.rl-editor button {
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid #71717a;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--rl-ink);
+  cursor: pointer;
+}
+
+.rl-editor button[type="submit"] {
+  border-color: var(--rl-red);
+  background: var(--rl-red);
+  color: #fff;
+  font-weight: 650;
+}
+
+.rl-editor button:hover:not(:disabled) {
+  border-color: var(--rl-ink);
+}
+
+.rl-editor button[type="submit"]:hover:not(:disabled) {
+  border-color: var(--rl-red-dark);
+  background: var(--rl-red-dark);
+}
+
+.rl-editor button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.rl-editor :focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.rl-status {
+  position: fixed;
+  z-index: 5;
+  right: 16px;
+  bottom: 16px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid #71717a;
+  border-radius: 4px;
+  background: var(--rl-paper);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 15%);
+  color: var(--rl-ink);
+  font-size: 14px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.rl-status[data-tone="success"] {
+  border-color: var(--rl-success);
+  color: var(--rl-success);
+}
+
+.rl-status[data-tone="error"] {
+  border-color: var(--rl-red);
+  color: var(--rl-red-dark);
+}
+
+@keyframes rl-highlight {
+  from {
+    box-shadow: 0 0 0 2px rgb(220 38 38 / 28%);
+  }
+  to {
+    box-shadow: 0 0 0 10px rgb(220 38 38 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rl-frame[data-highlight="true"] {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .rl-frame,
+  .rl-frame__badge {
+    border-color: CanvasText;
+  }
+
+  .rl-frame__badge {
+    background: Canvas;
+    color: CanvasText;
+  }
+}

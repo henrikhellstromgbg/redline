@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Redline review</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="panel-shell" aria-labelledby="panel-title">
+      <header class="review-header">
+        <div class="brand-row">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">Redline</span>
+          <span class="local-label">Local review</span>
+        </div>
+
+        <label class="field-label" for="review-title">Review title</label>
+        <input
+          class="title-input"
+          id="review-title"
+          name="review-title"
+          type="text"
+          maxlength="120"
+          autocomplete="off"
+          value="Design review"
+        >
+
+        <div class="connection" id="connection" data-state="loading">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <div class="connection-copy">
+            <span id="connection-status">Connecting to this tab…</span>
+            <span class="connection-location" id="connection-location"></span>
+          </div>
+        </div>
+
+        <div class="capture-row">
+          <button class="button button-primary" id="annotate-button" type="button" disabled>
+            <span class="button-icon" aria-hidden="true">＋</span>
+            Annotate
+          </button>
+          <output class="annotation-count" id="annotation-count" aria-live="polite">0 annotations</output>
+        </div>
+        <p class="capture-help" id="capture-help">Connect a supported web page to annotate it.</p>
+      </header>
+
+      <section class="intent-section" aria-labelledby="intent-heading">
+        <div>
+          <h2 id="intent-heading">Handoff</h2>
+          <p>Choose what should happen after review.</p>
+        </div>
+        <label class="visually-hidden" for="review-intent">Review intent</label>
+        <select id="review-intent" name="review-intent">
+          <option value="triage">Triage first</option>
+          <option value="agent">Fix with agent</option>
+          <option value="designer">Send back to designer</option>
+        </select>
+      </section>
+
+      <section class="annotations-section" aria-labelledby="annotations-heading">
+        <div class="section-heading">
+          <h2 id="annotations-heading">Annotations</h2>
+          <span id="annotation-summary">0</span>
+        </div>
+
+        <div class="empty-state" id="empty-state">
+          <span class="empty-frame" aria-hidden="true">1</span>
+          <h3>Outline the first issue</h3>
+          <p>Choose Annotate, draw around the problem on the live page, then add a short note.</p>
+        </div>
+
+        <div class="annotation-groups" id="annotation-groups"></div>
+      </section>
+
+      <section class="share-section" aria-labelledby="share-heading">
+        <div class="section-heading">
+          <h2 id="share-heading">Share review</h2>
+        </div>
+        <p class="section-description">Everything stays on this device until you export or copy it.</p>
+
+        <div class="share-actions">
+          <button class="button button-secondary" id="import-button" type="button">Import review</button>
+          <button class="button button-secondary" id="export-button" type="button">Export review</button>
+          <button class="button button-dark" id="copy-button" type="button" aria-describedby="copy-help">Copy for agent</button>
+        </div>
+        <p class="copy-help" id="copy-help" hidden></p>
+        <input id="import-input" type="file" accept="application/json,.json,.redline.json" hidden>
+      </section>
+
+      <footer class="panel-footer">
+        <button class="text-button" id="new-review-button" type="button">New review</button>
+        <span>Open JSON format · No upload</span>
+      </footer>
+    </main>
+
+    <div class="status" id="save-status" role="status" aria-live="polite" data-tone="neutral">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="save-status-text">Saved locally</span>
+    </div>
+
+    <template id="annotation-template">
+      <article class="annotation-card">
+        <div class="annotation-accent" aria-hidden="true"></div>
+        <div class="annotation-body">
+          <label class="annotation-label">
+            <span class="annotation-number"></span>
+            <span class="visually-hidden">Annotation instruction</span>
+          </label>
+          <textarea class="instruction-input" rows="3" maxlength="1000"></textarea>
+          <div class="annotation-actions">
+            <button class="small-button locate-button" type="button">Locate</button>
+            <button class="small-button remove-button" type="button">Remove</button>
+          </div>
+          <details class="target-details">
+            <summary>Target details</summary>
+            <dl class="target-list"></dl>
+          </details>
+        </div>
+      </article>
+    </template>
+
+    <script src="shared.js"></script>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

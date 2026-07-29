@@ -1,5 +1,9 @@
 # redline
 
+> **Experimental branch:** the original overlay below remains intact. This branch
+> also contains a separate Chrome extension for designer-to-developer handoff.
+> Start with [EXPERIMENT.md](EXPERIMENT.md).
+
 Design QA for agent-written interfaces. Mark a region on a live page, write one
 short instruction, and continue reviewing. Redline turns those marks into a
 structured queue with coordinates, computed styles, selectors, and framework
