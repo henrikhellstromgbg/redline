@@ -12,7 +12,7 @@ ground: CSS selector, computed styles, and React component names when present.
 ## What it is
 
 `overlay.js` is the whole tool — one self-contained vanilla JS IIFE, no
-dependencies, no build step. Inject it into any tab and a small floating toolbar
+dependencies, no build step. Run it on any tab and a small floating toolbar
 appears.
 
 ![redline in action](test/screenshot.png)
@@ -32,18 +32,18 @@ Pick whichever fits — the tool is the same either way.
 
   Many apps block remote scripts via Content-Security-Policy; there, use the console
   paste instead.
-- **Agent injection.** A Claude Code session reads `overlay.js` from disk and injects
-  it into the target tab via the Chrome MCP `javascript_tool`. See
-  [`AGENT.md`](AGENT.md).
+- **Ask your coding agent.** If you're already in a Claude Code (or similar) session
+  with browser access, just say "start a redline review on this page" — the agent
+  reads `overlay.js` and runs it for you. See [`AGENT.md`](AGENT.md).
 
-Re-injecting is always safe — the overlay is idempotent and resumes an in-progress
-review from `localStorage`.
+Running it again is always safe — the overlay is idempotent and resumes an
+in-progress review from `localStorage`.
 
 ## How to run a review
 
 1. Open the page you want to review in Chrome.
-2. Inject `overlay.js` — paste the file into the DevTools console, or let a Claude
-   Code session inject it via the Chrome MCP. Re-injecting is safe (idempotent).
+2. Load `overlay.js` — paste it into the DevTools console, or ask your coding agent
+   to start a review. Running it again is safe (idempotent).
 3. Use the toolbar (bottom right):
    - **Mark** — draw a rectangle over the thing to change. A popover opens: type
      the instruction, Enter saves, Esc discards. The mark stays as a numbered frame.
@@ -79,8 +79,8 @@ review from `localStorage`.
 - On a single-page-app route change the overlay survives, and any unsaved marks are
   auto-archived as a view for the page they were drawn on. Coordinates never mix.
 - A hard reload clears the overlay but the saved views stay in `localStorage`.
-  Re-injecting resumes the same review instead of starting over. The queue is only
-  cleared when the agent runs `localStorage.removeItem('redline.queue')`.
+  Loading it again resumes the same review instead of starting over. The queue is
+  only cleared when the agent runs `localStorage.removeItem('redline.queue')`.
 
 Tell the agent when you have pressed Finish. It reads the queue and implements.
 
@@ -155,14 +155,14 @@ No server, no persistence beyond `localStorage`.
 ## Files
 
 - `overlay.js` — the tool.
-- `AGENT.md` — the agent-side workflow (inject → wait → read queue → implement).
+- `AGENT.md` — the agent-side workflow (load → wait → read queue → implement).
 - `test/demo.html` — a static page with deliberate flaws (uppercase title,
   over-rounded card/dropdown, missing padding, weak grey, a `data-testid` container
   with a column of small labels) for testing without a real app.
 
 ## Test
 
-Open `test/demo.html` in a debuggable Chrome, inject `overlay.js`, mark a couple of
+Open `test/demo.html` in a debuggable Chrome, load `overlay.js`, mark a couple of
 the flaws, press Save view / Finish, and read `localStorage['redline.queue']`. See
 the "Testkrav" sections of `PLAN.md` for the full checklist.
 
@@ -174,16 +174,15 @@ paste into the receiver's agent CLI (Claude Code, Codex, anything that can drive
 browser). The receiving agent then asks its user one question:
 
 - **implement directly**, working through the queue item by item, or
-- **open the review visually first** — the agent fetches `overlay.js` from this
-  repo, loads the queue into the app tab, and the receiver triages with Edit/Remove
-  before saying go.
+- **open the review visually first** — the agent loads `overlay.js` and the queue
+  into the app tab, and the receiver triages with Edit/Remove before saying go.
 
 Send the prompt over Slack or anywhere else. The receiver never touches
 localStorage or DevTools; that is the agent's job. The prompt is also available
 programmatically as `window.__redline.buildHandoffPrompt()`.
 
 **Manual fallback** (no agent on the receiving end): **Copy JSON** instead, and the
-receiver imports it in their DevTools console before pasting `overlay.js`:
+receiver pastes it into their DevTools console before pasting `overlay.js`:
 
 ```js
 localStorage.setItem('redline.queue', JSON.stringify(<QUEUE_JSON>));
