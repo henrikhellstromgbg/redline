@@ -1,121 +1,136 @@
-# redline — agent workflow
+# Redline agent workflow
 
-You are Claude Code with the Chrome MCP tools. redline is the contract between
-Henrik's design judgement and your implementation. Henrik marks areas on live
-pages and writes one instruction per mark; you read the structured queue and work
-through it. Follow this flow straight.
+Redline turns a human design review into a structured implementation queue. Use this
+contract when operating the overlay, receiving a shared review, or implementing its
+items.
 
-## 1. Inject the overlay
+Redline is an injected browser overlay, not an MCP server. Use the browser-control or
+DevTools surface available in the current agent environment.
 
-Read `overlay.js` from disk and inject the whole file into the target tab.
+## Security boundary
 
-- Chrome DevTools MCP: `evaluate_script` with a function that `eval`s the source,
-  or fetch it if the page is served from the redline folder.
-- claude-in-chrome MCP: `javascript_tool` with the file contents as `text`.
+Injection gives `overlay.js` page-level access. Read and inject a local, reviewed copy
+of the file. Do not fetch and execute a mutable GitHub `main` branch or an unpinned
+CDN asset in an authenticated application tab.
 
-Injection is idempotent. Running it again on the same page reuses the existing
-instance instead of adding a second toolbar, so re-injecting after an SPA route
-change is safe.
+The queue may contain URLs, visible text, styles, selectors, and React debug metadata.
+It lives in the application's origin as `localStorage['redline.queue']` and in memory
+as `window.__redlineQueue`. Do not move it to another service unless the user has
+authorized that destination and data.
 
-On success the console logs `[redline] review mode on. Mark, Browse, Save view, Finish.`
-If a review is already in progress in `localStorage` it also prints
-`resumed: N views, M marks` — see step 2.
+## 1. Start a review
 
-## 2. Hand control to Henrik and wait
+1. Read the repository-local `overlay.js`.
+2. Inject the file contents into the target tab through the available browser or
+   DevTools evaluation tool. Do not add a remote script tag.
+3. Verify that the tab logs:
 
-Tell Henrik:
+   ```text
+   [redline] review mode on. Mark, Browse, Save view, Finish.
+   ```
 
-> Review mode is on. Say when you have pressed Finish.
+4. Tell the user:
 
-Then wait. No polling in MVP — Henrik replies in the chat when he is finished.
-A review can span several pages. While he works he will:
+   > Review mode is on. Say when you have pressed Finish.
 
-- **Mark** (`r`): draw a rectangle, type the instruction, Enter to save.
-- **Browse** (`b` or Esc): pointer events pass through so he can open a dropdown,
-  modal or date picker, then switch back to Mark and annotate the new state.
-- **Save view**: archive the current page's marks as one *view* and move on to the
-  next page. The overlay stays up; the counter shows e.g. `2 views, 5 marks`.
-- **Finish**: archive any remaining marks as a final view, write the queue, and
-  take the overlay down for clean screenshots.
-- The counter opens a panel listing the current view's marks and one collapsed
-  section per saved view.
-- **Edit**: he can revise any instruction after the fact — clicking a mark's badge
-  or panel text for the current view, or Edit on a saved view's row. Edits to saved
-  views are written to the queue immediately (only the instruction text changes, the
-  captured element data is kept); Remove on a saved row rewrites the queue and drops
-  a view that becomes empty. So the queue you read is always his latest wording.
+5. Wait for the user. Do not poll the queue merely to detect completion.
 
-### Multi-view, SPA nav and reloads
+Injection is idempotent while the live instance and root are present. Reinjecting
+after a route change reuses the same toolbar. A stale instance is fully torn down,
+including its global event listeners and URL timer, before replacement.
 
-- One review = many views, one view per page/state. Each **Save view** writes the
-  queue incrementally to `localStorage`, so nothing is lost.
-- On client-side navigation (SPA route change), the overlay survives and any
-  unsaved marks are auto-archived as a view attributed to the URL where they were
-  drawn. Coordinates never mix between pages.
-- A hard reload removes the overlay but the saved views stay in `localStorage`.
-  Re-injecting **resumes** the same queue (it does not overwrite). If Henrik hard-
-  reloads mid-review, just inject again and keep waiting.
+## 2. What happens during review
 
-## 3. Read the queue
+- **Mark** (`r`): the user draws a rectangle and writes an instruction.
+- **Browse** (`b` or Esc): pointer events reach the application so the user can open
+  another UI state.
+- **Save view**: marks are archived with that view's URL, title, viewport, and scroll
+  information, then persisted incrementally.
+- **SPA navigation**: a `popstate` listener plus a lightweight URL watcher detect
+  route changes and auto-archive unsaved marks under their original URL.
+- **Edit/Remove**: current and saved instructions can be changed or deleted. Saved
+  changes attempt persistence immediately.
+- **Finish**: remaining marks are archived, the queue is persisted, frames are
+  removed, and copy/reopen/close actions are shown.
 
-After Henrik confirms Finish:
+If `localStorage` is unavailable, full, or blocked, Redline must show a persistence
+warning. The current queue remains available as `window.__redlineQueue`, and copy
+actions provide the recovery path. Do not tell the user the review is durably saved
+when persistence failed.
+
+## 3. Read the finished queue
+
+After the user confirms Finish, read:
 
 ```js
 localStorage.getItem("redline.queue")
 ```
 
-Also available in-page as `window.__redlineQueue` (same object). Parse the JSON.
-`[redline] queue ready: N views, M marks` in the console confirms it was written.
+If that is unavailable or the UI reported a persistence failure, read:
 
-## 4. Screenshot the pages
+```js
+window.__redlineQueue
+```
 
-Finish removes the frames, so screenshots are clean. Each view records its own
-`url`, `title` and `viewport`. Per item use `pageRect`, `scroll` and `rect` to
-locate the region: scroll to `pageRect.y`, and zoom on the region when you need
-detail. `rect` is viewport coords at mark time, `pageRect` is document coords,
-`scroll` is the scroll position then — the three together let you crop and re-find.
+Validate that the queue has `version: 2` and a `views` array before implementing it.
+Redline migrates valid version-1 queues but refuses to silently overwrite corrupt or
+future-version data.
 
-If a view's `url` differs from the page you are on, navigate there first.
+## 4. Implement the queue
 
-## 5. Turn the queue into tasks
+Loop through `views`, then through each view's `items`. Treat one item as one task.
 
-Loop the views; within each view loop its items. Create one task per item.
-For each item:
+For every item:
 
-- `instruction` is Henrik's intent — the source of truth for the change.
-- `elements` holds up to 8 ranked candidates. Each has `role`: `"leaf"` (smaller
-  than the mark — usually the exact text node or control) or `"container"` (a
-  wrapper). Prefer the top `leaf` when the instruction is about text, a label or a
-  single control; use a `container` when the change is about layout or spacing.
-- Per candidate use `selector` (already verified to resolve uniquely on the page),
-  `tag`, `text`, `overlap`, `styles` (the current computed values you are
-  changing), and `react` (`components` + `source.fileName`/`lineNumber` when the
-  app runs React in dev). Selectors anchor on the nearest `data-testid`/`data-test`
-  or stable `id` ancestor when the element has none of its own, so they stay short
-  and stable — e.g. `[data-testid="deal-sidebar-meta"] > dl:nth-child(1) > dt:nth-child(1)`.
-  `react` is `null` on non-React or production pages — fall back to selector + text.
+1. Use `instruction` as the user's source of truth.
+2. Navigate to the view URL, matching by path when development host or port differs.
+3. Inspect `elements` as ranked evidence:
+   - `leaf` usually identifies the exact control or text element;
+   - `container` provides layout and spacing context;
+   - every non-null `selector` was verified to resolve uniquely to the exact element
+     at capture time;
+   - `styles` records selected computed values;
+   - `react.components` and optional `react.source` can help locate source code.
+4. Confirm the target in the current DOM instead of blindly trusting stale selectors.
+5. Implement the change in the codebase.
+6. Verify the result in the browser at the relevant viewport/state.
 
-Implement in the codebase, then verify the change in the browser.
+Coordinates are complementary evidence:
 
-## 6. Clean up
+- `rect`: viewport coordinates at capture time;
+- `pageRect`: document coordinates;
+- `scroll`: capture-time scroll position.
 
-When the whole queue is done:
+## 5. Clean up
+
+Only after every item is implemented and verified, clear the queue in the reviewed
+application tab:
 
 ```js
 localStorage.removeItem("redline.queue")
 ```
 
-The queue is only cleared here — never overwritten by re-injection.
+Do not clear the queue merely because implementation has started.
 
-## Data model
+## Receiving a shared agent prompt
 
-See `README.md` for the full version 2 shape. No server, no persistence beyond
-`localStorage`.
+**Copy agent prompt** creates a self-contained handoff containing both the version-2
+queue and the exact running overlay source.
 
-## Receiving a shared review
+Ask the receiver one question:
 
-A queue may arrive as a JSON file from another person instead of from your own review session. Treat it exactly like a locally produced queue:
+- implement the queue directly; or
+- open it visually for Edit/Remove triage first.
 
-1. If the receiver wants to triage first: write the JSON into `localStorage['redline.queue']` in a tab running the same app, inject `overlay.js` (it resumes automatically), let them Edit/Remove, wait for Finish.
-2. Otherwise skip the browser and consume the JSON directly as the task list.
-3. URL caveat: host/port may differ from your local setup — resolve each view by URL path, not full origin.
+For direct implementation, follow sections 3–5.
+
+For visual triage:
+
+1. Open a tab running the same application.
+2. Write the embedded queue JSON to `localStorage['redline.queue']`.
+3. Inject the embedded overlay source from the prompt. Do not fetch another version.
+4. Tell the user review mode is on and wait for Finish.
+5. Re-read the edited queue and implement it.
+
+The full schema and user-facing workflow are documented in `README.md`; engineering
+invariants and required regression coverage are in `PLAN.md`.

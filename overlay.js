@@ -3,11 +3,11 @@
  * Inject into any tab via Chrome MCP javascript_tool or paste into DevTools.
  * Idempotent: re-running reuses the existing instance instead of duplicating.
  *
- * v0.5: multi-view review (version 2 queue), testid-anchored selectors,
- * leaf-element capture, edit/remove with ghost frame, reopen after finish,
- * one-paste agent handoff prompt.
+ * v0.6: verified selectors, queue validation/migration, resilient persistence,
+ * removable event handlers, accessible mobile controls, and a self-contained
+ * one-paste agent handoff prompt containing this exact running overlay.
  */
-(function () {
+(function redlineOverlay() {
   "use strict";
 
   var ROOT_ID = "rl-root";
@@ -42,25 +42,135 @@
   var currentViewTitle = null;
   var lastUrl = location.href;
   var urlTimer = null;
+  var tornDown = false;
+  var publicApi = null;
+  var persistenceState = { ok: true, error: null };
+  var bootWarning = null;
+  var persistenceBlocked = false;
+  var bootNeedsWrite = false;
+  var bootLoaded = false;
+  var ownedTimeouts = new Set();
+  var ownedObjectUrls = new Set();
 
   function nowISO() {
     return new Date().toISOString();
   }
 
-  function readQueue() {
-    try {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
+  function later(callback, delay) {
+    if (tornDown) return null;
+    var timeoutId = setTimeout(function () {
+      ownedTimeouts.delete(timeoutId);
+      if (tornDown) return;
+      callback();
+    }, delay);
+    ownedTimeouts.add(timeoutId);
+    return timeoutId;
+  }
+
+  function isRecord(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function validItem(item) {
+    return (
+      isRecord(item) &&
+      (typeof item.id === "number" || typeof item.id === "string") &&
+      typeof item.instruction === "string" &&
+      isRecord(item.rect) &&
+      isRecord(item.pageRect) &&
+      Array.isArray(item.elements)
+    );
+  }
+
+  function validView(view) {
+    return (
+      isRecord(view) &&
+      typeof view.url === "string" &&
+      Array.isArray(view.items) &&
+      view.items.every(validItem)
+    );
+  }
+
+  function validateV2(queue) {
+    return (
+      isRecord(queue) &&
+      queue.version === 2 &&
+      typeof queue.createdAt === "string" &&
+      Array.isArray(queue.views) &&
+      queue.views.every(validView)
+    );
+  }
+
+  function migrateV1(queue) {
+    if (
+      !isRecord(queue) ||
+      queue.version !== 1 ||
+      typeof queue.url !== "string" ||
+      !Array.isArray(queue.items) ||
+      !queue.items.every(validItem)
+    ) {
       return null;
+    }
+    return {
+      version: 2,
+      createdAt: typeof queue.createdAt === "string" ? queue.createdAt : nowISO(),
+      views: [
+        {
+          url: queue.url,
+          title: typeof queue.title === "string" ? queue.title : "",
+          savedAt: typeof queue.createdAt === "string" ? queue.createdAt : nowISO(),
+          viewport: isRecord(queue.viewport) ? queue.viewport : viewportNow(),
+          items: queue.items
+        }
+      ]
+    };
+  }
+
+  function readQueue() {
+    var raw = null;
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+      if (raw === null) return { queue: null, raw: null };
+      return { queue: JSON.parse(raw), raw: raw };
+    } catch (e) {
+      return { queue: null, raw: raw, error: e };
     }
   }
 
-  // Resume: if a version 2 queue already exists, continue on it.
+  // Resume only validated data. V1 is migrated in memory; malformed or future
+  // queues are never overwritten, so injecting the overlay cannot destroy data.
   var boot = readQueue();
-  if (boot && boot.version === 2 && Array.isArray(boot.views)) {
-    views = boot.views.slice();
-    createdAt = boot.createdAt || nowISO();
+  if (boot.error) {
+    createdAt = nowISO();
+    persistenceBlocked = true;
+    bootWarning =
+      "The stored queue is invalid or could not be parsed. It was left unchanged: " +
+      (boot.error.message || boot.error);
+    persistenceState = { ok: false, error: boot.error };
+  } else if (validateV2(boot.queue)) {
+    views = boot.queue.views.slice();
+    createdAt = boot.queue.createdAt;
+    bootLoaded = true;
+  } else if (isRecord(boot.queue) && boot.queue.version === 1) {
+    var migrated = migrateV1(boot.queue);
+    if (migrated) {
+      views = migrated.views;
+      createdAt = migrated.createdAt;
+      bootLoaded = true;
+      bootNeedsWrite = true;
+      bootWarning = "Migrated a version 1 queue to version 2.";
+    } else {
+      createdAt = nowISO();
+      persistenceBlocked = true;
+      bootWarning = "The stored version 1 queue is invalid. It was left unchanged.";
+    }
+  } else if (boot.raw !== null) {
+    persistenceBlocked = true;
+    bootWarning =
+      isRecord(boot.queue) && typeof boot.queue.version === "number" && boot.queue.version > 2
+        ? "This queue was created by a newer Redline version. It was left unchanged."
+        : "The stored queue is invalid. It was left unchanged.";
+    createdAt = nowISO();
   } else {
     createdAt = nowISO();
   }
@@ -75,7 +185,7 @@
     "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;",
     "color:#111;}",
     "#rl-root *{box-sizing:border-box;}",
-    ".rl-draw-layer{position:fixed;inset:0;pointer-events:none;cursor:crosshair;}",
+    ".rl-draw-layer{position:fixed;inset:0;pointer-events:none;cursor:crosshair;touch-action:none;}",
     "#rl-root.rl-mode-draw .rl-draw-layer{pointer-events:auto;}",
     ".rl-marks{position:fixed;inset:0;pointer-events:none;}",
     ".rl-frame{position:absolute;border:2px solid #e11d48;border-radius:0;pointer-events:none;",
@@ -85,7 +195,7 @@
     "box-shadow:0 0 0 1px rgba(255,255,255,.6);}",
     ".rl-badge{position:absolute;top:-2px;left:-2px;min-width:20px;height:20px;line-height:20px;",
     "padding:0 5px;border-radius:0;color:#fff;font-size:14px;font-weight:700;text-align:center;",
-    "font-family:inherit;cursor:pointer;pointer-events:auto;}",
+    "font-family:inherit;cursor:pointer;pointer-events:auto;border:0;}",
     ".rl-drag{position:fixed;border:2px dashed #e11d48;border-radius:0;background:rgba(225,29,72,.08);",
     "pointer-events:none;}",
     ".rl-toolbar{position:fixed;right:16px;bottom:16px;pointer-events:auto;background:#fff;",
@@ -94,6 +204,8 @@
     ".rl-btn{font-size:14px;font-family:inherit;line-height:1;padding:8px 12px;border-radius:6px;",
     "border:1px solid #d4d4d8;background:#fafafa;color:#18181b;cursor:pointer;}",
     ".rl-btn:hover{background:#f1f1f4;}",
+    ".rl-btn:focus-visible,.rl-count:focus-visible,.rl-edit:focus-visible,.rl-del:focus-visible{",
+    "outline:3px solid #2563eb;outline-offset:2px;}",
     ".rl-btn.rl-active{background:#18181b;color:#fff;border-color:#18181b;}",
     ".rl-btn-finish{background:#059669;color:#fff;border-color:#059669;}",
     ".rl-btn-finish:hover{background:#047857;}",
@@ -113,8 +225,9 @@
     ".rl-row{display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;font-size:14px;",
     "cursor:pointer;}",
     ".rl-row:hover{background:#f4f4f5;}",
-    ".rl-dot{width:14px;height:14px;flex:0 0 14px;border-radius:0;}",
-    ".rl-row-text{flex:1;color:#27272a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
+    ".rl-dot{width:14px;height:14px;flex:0 0 14px;border-radius:0;border:0;padding:0;}",
+    ".rl-row-text{flex:1;color:#27272a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+    "border:0;background:transparent;padding:0;text-align:left;font:inherit;cursor:pointer;}",
     ".rl-del{font-size:14px;border:none;background:transparent;color:#a1a1aa;cursor:pointer;",
     "padding:2px 6px;border-radius:6px;}",
     ".rl-del:hover{color:#e11d48;background:#fef2f2;}",
@@ -122,17 +235,23 @@
     "padding:2px 6px;border-radius:6px;}",
     ".rl-edit:hover{color:#2563eb;background:#eef2ff;}",
     ".rl-vsection{border-top:1px solid #ececef;margin-top:6px;padding-top:6px;}",
-    ".rl-vhead{display:flex;align-items:center;gap:8px;padding:8px;border-radius:6px;font-size:14px;",
-    "cursor:pointer;color:#3f3f46;user-select:none;}",
+    ".rl-vhead{display:flex;align-items:center;gap:8px;padding:8px;border:0;border-radius:6px;",
+    "width:100%;background:transparent;text-align:left;font:inherit;font-size:14px;cursor:pointer;",
+    "color:#3f3f46;user-select:none;}",
     ".rl-vhead:hover{background:#f4f4f5;}",
     ".rl-caret{width:12px;flex:0 0 12px;color:#a1a1aa;font-size:14px;}",
     ".rl-vtitle{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}",
     ".rl-vcount{color:#a1a1aa;font-size:14px;white-space:nowrap;}",
     ".rl-toast{position:fixed;right:16px;bottom:16px;pointer-events:auto;background:#18181b;",
     "color:#fafafa;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,.3);padding:12px 14px;",
-    "font-size:14px;display:flex;align-items:center;gap:10px;}",
+    "font-size:14px;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);flex-wrap:wrap;}",
     ".rl-toast .rl-btn{background:#fafafa;color:#18181b;}",
-    ".rl-empty{font-size:14px;color:#71717a;padding:10px;}"
+    ".rl-empty{font-size:14px;color:#71717a;padding:10px;}",
+    "@media(max-width:640px){.rl-toolbar{left:8px;right:8px;bottom:8px;justify-content:center;",
+    "flex-wrap:wrap}.rl-btn,.rl-count{min-height:40px}.rl-panel{left:8px;right:8px;bottom:108px;",
+    "width:auto;max-height:55vh}.rl-popover{width:auto;left:8px!important;right:8px}.rl-toast{",
+    "left:8px;right:8px;bottom:8px;max-width:none}.rl-toast span{flex-basis:100%}}",
+    "@media(prefers-reduced-motion:reduce){.rl-frame{transition:none!important}}"
   ].join("");
 
   var drawLayer = document.createElement("div");
@@ -143,11 +262,14 @@
 
   var toolbar = document.createElement("div");
   toolbar.className = "rl-toolbar";
+  toolbar.setAttribute("role", "toolbar");
+  toolbar.setAttribute("aria-label", "Redline review tools");
 
   var btnMark = mkBtn("Mark", "rl-btn");
   var btnBrowse = mkBtn("Browse", "rl-btn");
-  var countEl = document.createElement("div");
-  countEl.className = "rl-count";
+  var countEl = mkBtn("0 marks", "rl-count");
+  countEl.setAttribute("aria-label", "Show review marks");
+  countEl.setAttribute("aria-expanded", "false");
   var btnSaveView = mkBtn("Save view", "rl-btn");
   var btnFinish = mkBtn("Finish", "rl-btn rl-btn-finish");
 
@@ -198,6 +320,8 @@
     rootEl.classList.toggle("rl-mode-browse", m === "browse");
     btnMark.classList.toggle("rl-active", m === "draw");
     btnBrowse.classList.toggle("rl-active", m === "browse");
+    btnMark.setAttribute("aria-pressed", String(m === "draw"));
+    btnBrowse.setAttribute("aria-pressed", String(m === "browse"));
   }
 
   function savedMarkCount() {
@@ -219,6 +343,7 @@
         total +
         (total === 1 ? " mark" : " marks");
     }
+    countEl.setAttribute("aria-label", countEl.textContent + "; show review marks");
   }
 
   // ---- selector generation ----------------------------------------------
@@ -234,6 +359,18 @@
   function cssEsc(s) {
     if (window.CSS && CSS.escape) return CSS.escape(s);
     return String(s).replace(/([^a-zA-Z0-9_-])/g, "\\$1");
+  }
+
+  // Escape an attribute value as a CSS quoted string. CSS.escape() targets
+  // identifiers and is not sufficient when values contain quotes/newlines.
+  function cssAttrValue(value) {
+    return String(value)
+      .replace(/\\/g, "\\\\")
+      .replace(/\0/g, "\\fffd ")
+      .replace(/\r\n|\r|\n|\f/g, function (ch) {
+        return "\\" + ch.charCodeAt(0).toString(16) + " ";
+      })
+      .replace(/"/g, '\\"');
   }
 
   function unique(sel, el) {
@@ -267,9 +404,9 @@
     if (node.id && !isHashy(node.id)) return "#" + cssEsc(node.id);
     if (node.getAttribute) {
       var tid = node.getAttribute("data-testid");
-      if (tid) return '[data-testid="' + tid + '"]';
+      if (tid) return '[data-testid="' + cssAttrValue(tid) + '"]';
       var td = node.getAttribute("data-test");
-      if (td) return '[data-test="' + td + '"]';
+      if (td) return '[data-test="' + cssAttrValue(td) + '"]';
     }
     return null;
   }
@@ -292,21 +429,28 @@
     return null;
   }
 
-  // Root fallback: nth-child chain up to nearest ancestor with a stable id.
+  // Root fallback: an exact path rooted at a unique stable id or at html/body.
+  // The final candidate is still verified before it is returned.
   function nthChildPath(el) {
     var parts = [];
     var node = el;
-    while (node && node.nodeType === 1 && node !== document.body) {
-      if (node.id && !isHashy(node.id)) {
-        parts.unshift("#" + cssEsc(node.id));
+    while (node && node.nodeType === 1) {
+      if (node === document.documentElement) {
+        parts.unshift("html");
         break;
       }
-      var parent = node.parentNode;
-      if (parent) {
-        parts.unshift(node.tagName.toLowerCase() + ":nth-child(" + nthIndex(node) + ")");
-      } else {
-        parts.unshift(node.tagName.toLowerCase());
+      if (node === document.body) {
+        parts.unshift("body");
+        break;
       }
+      if (node.id && !isHashy(node.id)) {
+        var anchor = "#" + cssEsc(node.id);
+        if (unique(anchor, node)) {
+          parts.unshift(anchor);
+          break;
+        }
+      }
+      parts.unshift(node.tagName.toLowerCase() + ":nth-child(" + nthIndex(node) + ")");
       node = node.parentElement;
     }
     return parts.join(" > ");
@@ -323,7 +467,7 @@
     var tid = el.getAttribute("data-testid") || el.getAttribute("data-test");
     if (tid) {
       var attr = el.getAttribute("data-testid") ? "data-testid" : "data-test";
-      var st = "[" + attr + '="' + tid + '"]';
+      var st = "[" + attr + '="' + cssAttrValue(tid) + '"]';
       if (unique(st, el)) return st;
       var st2 = tag + st;
       if (unique(st2, el)) return st2;
@@ -344,7 +488,9 @@
     // 5) nth-child chain from nearest id ancestor (root fallback)
     var path = nthChildPath(el);
     if (path && unique(path, el)) return path;
-    return path || tag;
+    // A detached element or a closed shadow root cannot be addressed from
+    // document.querySelector. Null is honest and prevents targeting the wrong node.
+    return null;
   }
 
   // ---- computed styles ---------------------------------------------------
@@ -412,10 +558,11 @@
   function describe(el, overlap, rectArea) {
     var r = el.getBoundingClientRect();
     var ea = r.width * r.height;
+    var readableText = typeof el.innerText === "string" ? el.innerText : el.textContent || "";
     return {
       selector: buildSelector(el),
       tag: el.tagName.toLowerCase(),
-      text: (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80),
+      text: readableText.trim().replace(/\s+/g, " ").slice(0, 80),
       overlap: Math.round(overlap * 100) / 100,
       role: ea < rectArea ? "leaf" : "container",
       styles: pickStyles(el),
@@ -556,11 +703,13 @@
     frame.style.width = mark.rect.w + "px";
     frame.style.height = mark.rect.h + "px";
 
-    var badge = document.createElement("div");
+    var badge = document.createElement("button");
     badge.className = "rl-badge";
+    badge.type = "button";
     badge.style.background = mark.color;
     badge.textContent = String(mark.id);
     badge.title = "Edit instruction";
+    badge.setAttribute("aria-label", "Edit mark " + mark.id);
     badge.addEventListener("click", function (e) {
       e.stopPropagation();
       editMarkInstruction(mark);
@@ -596,12 +745,7 @@
   }
 
   // ---- add / remove a mark ----------------------------------------------
-  function addMark(rect, instruction) {
-    if (finished) return null;
-    if (!currentViewUrl) {
-      currentViewUrl = location.href;
-      currentViewTitle = document.title;
-    }
+  function prepareMark(rect, viewContext) {
     rect = {
       x: Math.round(rect.x),
       y: Math.round(rect.y),
@@ -610,21 +754,56 @@
     };
     var scroll = { x: window.scrollX, y: window.scrollY };
     var pageRect = { x: rect.x + scroll.x, y: rect.y + scroll.y, w: rect.w, h: rect.h };
-    var elements = captureElements(rect);
+    return {
+      rect: rect,
+      pageRect: pageRect,
+      scroll: scroll,
+      elements: captureElements(rect),
+      viewUrl: viewContext && viewContext.url ? viewContext.url : location.href,
+      viewTitle:
+        viewContext && typeof viewContext.title === "string" ? viewContext.title : document.title
+    };
+  }
+
+  function commitPreparedMark(prepared, instruction) {
+    if (finished || !prepared) return null;
+    // Do not depend on the 500 ms URL watcher for view separation. A mark can be
+    // completed immediately after pushState(), before the watcher has observed it.
+    if (marks.length && currentViewUrl && currentViewUrl !== prepared.viewUrl) {
+      var previousView = archiveCurrentView();
+      if (previousView && persistenceState.ok) {
+        console.log(
+          "[redline] route changed before the URL watcher; saved view: " +
+            (previousView.title || previousView.url)
+        );
+      } else if (previousView) {
+        showNotice(persistenceMessage());
+      }
+    }
+    if (prepared.viewUrl === location.href) lastUrl = location.href;
+    if (!currentViewUrl) {
+      currentViewUrl = prepared.viewUrl;
+      currentViewTitle = prepared.viewTitle;
+    }
     var mark = {
       id: nextId++,
       color: colorFor(marks.length),
       instruction: instruction || "",
-      rect: rect,
-      pageRect: pageRect,
-      scroll: scroll,
-      elements: elements
+      rect: prepared.rect,
+      pageRect: prepared.pageRect,
+      scroll: prepared.scroll,
+      elements: prepared.elements
     };
     marks.push(mark);
     drawFrame(mark);
     renderCount();
     if (panelEl) renderPanel();
     return mark;
+  }
+
+  function addMark(rect, instruction, viewContext) {
+    if (finished) return null;
+    return commitPreparedMark(prepareMark(rect, viewContext), instruction);
   }
 
   function removeMark(id) {
@@ -636,6 +815,10 @@
         marks.splice(i, 1);
         break;
       }
+    }
+    if (!marks.length) {
+      currentViewUrl = null;
+      currentViewTitle = null;
     }
     renderCount();
     if (panelEl) renderPanel();
@@ -656,12 +839,23 @@
 
   function writeQueue() {
     var q = { version: 2, createdAt: createdAt, views: views };
+    // Always retain the newest in-memory queue, even when browser storage is
+    // unavailable. This gives copy/download and agent tooling a lossless fallback.
+    window.__redlineQueue = q;
+    if (persistenceBlocked) {
+      persistenceState = {
+        ok: false,
+        error: new Error("Existing incompatible queue was left unchanged")
+      };
+      return q;
+    }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(q));
+      persistenceState = { ok: true, error: null };
     } catch (e) {
+      persistenceState = { ok: false, error: e };
       console.warn("[redline] localStorage write failed", e);
     }
-    window.__redlineQueue = q;
     return q;
   }
 
@@ -695,6 +889,7 @@
       console.log(
         "[redline] view saved: " + (view.title || view.url) + " (" + view.items.length + " marks)"
       );
+      if (!persistenceState.ok) showNotice(persistenceMessage());
     }
     setMode("browse"); // continue to the next view
   }
@@ -718,17 +913,20 @@
   function buildCurrentRow(m) {
     var row = document.createElement("div");
     row.className = "rl-row";
-    var dot = document.createElement("span");
+    var dot = document.createElement("button");
     dot.className = "rl-dot";
+    dot.type = "button";
     dot.style.background = m.color;
     dot.style.cursor = "pointer";
     dot.title = "Scroll to mark";
+    dot.setAttribute("aria-label", "Scroll to mark " + m.id);
     dot.addEventListener("click", function (e) {
       e.stopPropagation();
       blinkMark(m);
     });
-    var text = document.createElement("span");
+    var text = document.createElement("button");
     text.className = "rl-row-text";
+    text.type = "button";
     text.textContent = m.id + ". " + shortText(m.instruction);
     text.title = "Edit instruction";
     text.addEventListener("click", function (e) {
@@ -756,8 +954,9 @@
     var dot = document.createElement("span");
     dot.className = "rl-dot";
     dot.style.background = item.color || "#a1a1aa";
-    var text = document.createElement("span");
+    var text = document.createElement("button");
     text.className = "rl-row-text";
+    text.type = "button";
     text.textContent = item.id + ". " + shortText(item.instruction);
     text.title = "Edit instruction";
     text.addEventListener("click", function (e) {
@@ -790,9 +989,11 @@
   function buildViewSection(view) {
     var sec = document.createElement("div");
     sec.className = "rl-vsection";
-    var head = document.createElement("div");
+    var head = document.createElement("button");
     head.className = "rl-vhead";
+    head.type = "button";
     var expanded = expandedViews.has(view);
+    head.setAttribute("aria-expanded", String(expanded));
     var caret = document.createElement("span");
     caret.className = "rl-caret";
     caret.textContent = expanded ? "▾" : "▸"; // ▾ / ▸
@@ -868,6 +1069,7 @@
     var onSave = function (val) {
       item.instruction = val;
       writeQueue();
+      if (!persistenceState.ok) showNotice(persistenceMessage());
       if (panelEl) renderPanel();
     };
     if (location.href === view.url) {
@@ -918,6 +1120,7 @@
       if (vi >= 0) views.splice(vi, 1);
     }
     writeQueue();
+    if (!persistenceState.ok) showNotice(persistenceMessage());
     renderCount();
     if (panelEl) renderPanel();
   }
@@ -926,11 +1129,15 @@
     if (panelEl) {
       panelEl.parentNode.removeChild(panelEl);
       panelEl = null;
+      countEl.setAttribute("aria-expanded", "false");
       return;
     }
     panelEl = document.createElement("div");
     panelEl.className = "rl-panel";
+    panelEl.setAttribute("role", "region");
+    panelEl.setAttribute("aria-label", "Review marks");
     rootEl.appendChild(panelEl);
+    countEl.setAttribute("aria-expanded", "true");
     renderPanel();
   }
 
@@ -941,7 +1148,7 @@
       behavior: "smooth"
     });
     m.frameEl.classList.add("rl-blink");
-    setTimeout(function () {
+    later(function () {
       if (m.frameEl) m.frameEl.classList.remove("rl-blink");
     }, 900);
   }
@@ -970,6 +1177,8 @@
     setMode("browse"); // pause drawing while typing so page keys/scroll behave
     popoverEl = document.createElement("div");
     popoverEl.className = "rl-popover";
+    popoverEl.setAttribute("role", "dialog");
+    popoverEl.setAttribute("aria-label", "Edit redline instruction");
     if (opts.contextLine) {
       var ctx = document.createElement("div");
       ctx.className = "rl-context";
@@ -978,6 +1187,7 @@
     }
     var ta = document.createElement("textarea");
     ta.placeholder = "Describe the change";
+    ta.setAttribute("aria-label", "Change instruction");
     ta.value = opts.text || "";
     var hint = document.createElement("div");
     hint.className = "rl-hint";
@@ -1024,6 +1234,7 @@
   var dragging = false;
   var dragStart = null;
   var dragEl = null;
+  var dragInput = null;
   var pendingEl = null; // preview frame kept visible while the instruction popover is open
 
   function showPending(rect) {
@@ -1045,50 +1256,66 @@
     pendingEl = null;
   }
 
-  drawLayer.addEventListener("mousedown", function (e) {
+  function startDrag(x, y, input) {
     if (mode !== "draw" || finished) return;
-    if (e.button !== 0) return;
     dragging = true;
-    dragStart = { x: e.clientX, y: e.clientY };
+    dragInput = input;
+    dragStart = { x: x, y: y };
     dragEl = document.createElement("div");
     dragEl.className = "rl-drag";
-    dragEl.style.left = e.clientX + "px";
-    dragEl.style.top = e.clientY + "px";
+    dragEl.style.left = x + "px";
+    dragEl.style.top = y + "px";
     dragEl.style.width = "0px";
     dragEl.style.height = "0px";
     rootEl.appendChild(dragEl);
-    e.preventDefault();
-  });
+  }
 
-  window.addEventListener("mousemove", function (e) {
+  function moveDrag(x, y) {
     if (!dragging || !dragEl) return;
-    var x = Math.min(e.clientX, dragStart.x);
-    var y = Math.min(e.clientY, dragStart.y);
-    var w = Math.abs(e.clientX - dragStart.x);
-    var h = Math.abs(e.clientY - dragStart.y);
-    dragEl.style.left = x + "px";
-    dragEl.style.top = y + "px";
+    var left = Math.min(x, dragStart.x);
+    var top = Math.min(y, dragStart.y);
+    var w = Math.abs(x - dragStart.x);
+    var h = Math.abs(y - dragStart.y);
+    dragEl.style.left = left + "px";
+    dragEl.style.top = top + "px";
     dragEl.style.width = w + "px";
     dragEl.style.height = h + "px";
-  });
+  }
 
-  window.addEventListener("mouseup", function (e) {
+  function endDrag(x, y) {
     if (!dragging) return;
     dragging = false;
-    var x = Math.min(e.clientX, dragStart.x);
-    var y = Math.min(e.clientY, dragStart.y);
-    var w = Math.abs(e.clientX - dragStart.x);
-    var h = Math.abs(e.clientY - dragStart.y);
+    dragInput = null;
+    var left = Math.min(x, dragStart.x);
+    var top = Math.min(y, dragStart.y);
+    var w = Math.abs(x - dragStart.x);
+    var h = Math.abs(y - dragStart.y);
     if (dragEl && dragEl.parentNode) dragEl.parentNode.removeChild(dragEl);
     dragEl = null;
+    dragStart = null;
     if (w < 6 || h < 6) return; // ignore accidental clicks
-    var rect = { x: x, y: y, w: w, h: h };
+    var rect = { x: left, y: top, w: w, h: h };
+    var viewContext = { url: location.href, title: document.title };
+    // Capture the page evidence now. The reviewer may navigate while the instruction
+    // editor is open, and delayed capture would mix the old URL with the new DOM.
+    var preparedMark = prepareMark(rect, viewContext);
     openPopover({
       anchorRect: rect,
       text: "",
       onSave: function (val) {
         removePending();
-        addMark(rect, val);
+        commitPreparedMark(preparedMark, val);
+        if (viewContext.url !== location.href) {
+          var archived = archiveCurrentView();
+          if (archived && persistenceState.ok) {
+            console.log(
+              "[redline] route changed during instruction entry; saved view: " +
+                (archived.title || archived.url)
+            );
+          } else if (archived) {
+            showNotice(persistenceMessage());
+          }
+        }
         setMode("draw");
       },
       onCancel: function () {
@@ -1099,7 +1326,57 @@
     // After openPopover (whose closePopover would otherwise clear it): keep the
     // drawn rectangle visible while the instruction is typed.
     showPending(rect);
-  });
+  }
+
+  function cancelDrag() {
+    dragging = false;
+    dragInput = null;
+    dragStart = null;
+    if (dragEl && dragEl.parentNode) dragEl.parentNode.removeChild(dragEl);
+    dragEl = null;
+  }
+
+  function handleMouseDown(e) {
+    if (e.button !== 0 || dragging) return;
+    startDrag(e.clientX, e.clientY, "mouse");
+    if (dragging) e.preventDefault();
+  }
+
+  function handleMouseMove(e) {
+    if (dragInput === "mouse") moveDrag(e.clientX, e.clientY);
+  }
+
+  function handleMouseUp(e) {
+    if (dragInput === "mouse") endDrag(e.clientX, e.clientY);
+  }
+
+  function handleTouchStart(e) {
+    if (dragging || !e.touches || e.touches.length !== 1) return;
+    var touch = e.touches[0];
+    startDrag(touch.clientX, touch.clientY, "touch");
+    if (dragging) e.preventDefault();
+  }
+
+  function handleTouchMove(e) {
+    if (dragInput !== "touch" || !e.touches || !e.touches.length) return;
+    moveDrag(e.touches[0].clientX, e.touches[0].clientY);
+    e.preventDefault();
+  }
+
+  function handleTouchEnd(e) {
+    if (dragInput !== "touch") return;
+    var touch = e.changedTouches && e.changedTouches[0];
+    if (touch) endDrag(touch.clientX, touch.clientY);
+    else cancelDrag();
+  }
+
+  drawLayer.addEventListener("mousedown", handleMouseDown);
+  drawLayer.addEventListener("touchstart", handleTouchStart, { passive: false });
+  window.addEventListener("mousemove", handleMouseMove);
+  window.addEventListener("mouseup", handleMouseUp);
+  window.addEventListener("touchmove", handleTouchMove, { passive: false });
+  window.addEventListener("touchend", handleTouchEnd);
+  window.addEventListener("touchcancel", handleTouchEnd);
 
   // ---- keyboard ----------------------------------------------------------
   function typingInPage() {
@@ -1110,21 +1387,19 @@
     return tag === "input" || tag === "textarea" || tag === "select" || a.isContentEditable;
   }
 
-  window.addEventListener(
-    "keydown",
-    function (e) {
-      if (finished) return;
-      if (typingInPage()) return;
-      if (e.key === "r" || e.key === "R") {
-        setMode("draw");
-      } else if (e.key === "b" || e.key === "B") {
-        setMode("browse");
-      } else if (e.key === "Escape") {
-        if (!dragging && mode === "draw") setMode("browse");
-      }
-    },
-    true
-  );
+  function handleKeyDown(e) {
+    if (finished || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (typingInPage()) return;
+    if (e.key === "r" || e.key === "R") {
+      setMode("draw");
+    } else if (e.key === "b" || e.key === "B") {
+      setMode("browse");
+    } else if (e.key === "Escape") {
+      if (!dragging && mode === "draw") setMode("browse");
+    }
+  }
+
+  window.addEventListener("keydown", handleKeyDown, true);
 
   // ---- scroll ------------------------------------------------------------
   window.addEventListener("scroll", repositionFrames, true);
@@ -1140,13 +1415,18 @@
       if (marks.length) {
         var view = archiveCurrentView();
         if (view) {
-          console.log(
-            "[redline] url changed, auto-saved view: " +
-              (view.title || view.url) +
-              " (" +
-              view.items.length +
-              " marks)"
-          );
+          if (persistenceState.ok) {
+            console.log(
+              "[redline] url changed, auto-saved view: " +
+                (view.title || view.url) +
+                " (" +
+                view.items.length +
+                " marks)"
+            );
+          } else {
+            console.warn("[redline] URL changed; view is ready in memory but was not saved");
+            showNotice(persistenceMessage());
+          }
         }
       }
       lastUrl = location.href;
@@ -1158,6 +1438,10 @@
   // ---- finish ------------------------------------------------------------
   // Build a complete handoff prompt for another person's agent CLI: paste it
   // into Claude Code / Codex and the receiving agent takes over from there.
+  function runningOverlaySource() {
+    return "(" + redlineOverlay.toString() + ")();";
+  }
+
   function buildHandoffPrompt(json) {
     var q = json || JSON.stringify({ version: 2, createdAt: createdAt, views: views });
     return [
@@ -1182,45 +1466,159 @@
       "If (b) triage first:",
       "- In a tab running this app, write the JSON below into",
       "  localStorage['redline.queue'].",
-      "- Fetch https://raw.githubusercontent.com/henrikhellstromgbg/redline/main/overlay.js",
-      "  yourself and inject its CONTENTS into the tab via the Chrome MCP",
-      "  javascript_tool (do not add a remote <script> tag, strict CSP will block it).",
+      "- Inject the exact overlay source embedded below into the tab via the Chrome MCP",
+      "  javascript_tool. It is the same code that produced this queue and requires no",
+      "  network fetch or remote script tag.",
       "  The overlay resumes the queue automatically.",
       "- Tell me review mode is on, wait until I say I have pressed Finish, then",
       "  re-read the queue and proceed as in (a).",
       "",
-      "Review queue JSON:",
+      "Exact running overlay source (inject verbatim):",
+      runningOverlaySource(),
+      "",
+      ["Review queue ", "JSON:"].join(""),
       q
     ].join("\n");
   }
 
-  function showToast(json, viewCount, markCount) {
+  function legacyCopyText(value) {
+    return new Promise(function (resolve, reject) {
+      if (tornDown) {
+        reject(new Error("Redline was torn down"));
+        return;
+      }
+      var ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      (document.body || document.documentElement).appendChild(ta);
+      ta.select();
+      try {
+        var copied = document.execCommand && document.execCommand("copy");
+        if (copied) resolve();
+        else reject(new Error("Browser denied clipboard access"));
+      } catch (e) {
+        reject(e);
+      } finally {
+        if (ta.parentNode) ta.parentNode.removeChild(ta);
+      }
+    });
+  }
+
+  function copyText(value) {
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        return Promise.resolve(navigator.clipboard.writeText(value)).catch(function (error) {
+          if (tornDown) return Promise.reject(error);
+          return legacyCopyText(value);
+        });
+      }
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    return legacyCopyText(value);
+  }
+
+  function copyWithStatus(button, value) {
+    var original = button.textContent;
+    button.disabled = true;
+    copyText(value).then(
+      function () {
+        if (tornDown) return;
+        button.textContent = "Copied";
+      },
+      function () {
+        if (tornDown) return;
+        button.textContent = "Copy failed";
+      }
+    ).then(function () {
+      if (tornDown) return;
+      button.disabled = false;
+      later(function () {
+        if (button.isConnected) button.textContent = original;
+      }, 2200);
+    });
+  }
+
+  function downloadText(filename, value, type) {
+    try {
+      var blob = new Blob([value], { type: type || "text/plain;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      ownedObjectUrls.add(url);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+      (document.body || document.documentElement).appendChild(a);
+      a.click();
+      a.parentNode.removeChild(a);
+      later(function () {
+        URL.revokeObjectURL(url);
+        ownedObjectUrls.delete(url);
+      }, 0);
+      return true;
+    } catch (e) {
+      console.warn("[redline] download failed", e);
+      return false;
+    }
+  }
+
+  function persistenceMessage() {
+    if (persistenceBlocked) {
+      return "Queue kept in memory; incompatible stored data was left unchanged. Copy or download now.";
+    }
+    return "Queue kept in memory, but browser storage failed. Copy or download now.";
+  }
+
+  var noticeEl = null;
+  function showNotice(message) {
+    console.warn("[redline] " + message);
+    if (noticeEl && noticeEl.parentNode) noticeEl.parentNode.removeChild(noticeEl);
+    noticeEl = document.createElement("div");
+    noticeEl.className = "rl-toast";
+    noticeEl.setAttribute("role", "status");
+    noticeEl.setAttribute("aria-live", "polite");
+    var label = document.createElement("span");
+    label.textContent = message;
+    var close = mkBtn("Close", "rl-btn");
+    close.addEventListener("click", function () {
+      if (noticeEl && noticeEl.parentNode) noticeEl.parentNode.removeChild(noticeEl);
+      noticeEl = null;
+    });
+    noticeEl.appendChild(label);
+    noticeEl.appendChild(close);
+    rootEl.appendChild(noticeEl);
+  }
+
+  function showToast(json, viewCount, markCount, persisted) {
+    if (noticeEl && noticeEl.parentNode) noticeEl.parentNode.removeChild(noticeEl);
+    noticeEl = null;
     var toast = document.createElement("div");
     toast.className = "rl-toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
     var label = document.createElement("span");
-    label.textContent =
-      "Review saved, " +
-      viewCount +
-      (viewCount === 1 ? " view, " : " views, ") +
-      markCount +
-      (markCount === 1 ? " mark" : " marks");
+    label.textContent = persisted
+      ? "Review saved, " +
+        viewCount +
+        (viewCount === 1 ? " view, " : " views, ") +
+        markCount +
+        (markCount === 1 ? " mark" : " marks")
+      : persistenceMessage();
     var copyPrompt = mkBtn("Copy agent prompt", "rl-btn");
     copyPrompt.addEventListener("click", function () {
-      try {
-        navigator.clipboard.writeText(buildHandoffPrompt(json));
-        copyPrompt.textContent = "Copied";
-      } catch (e) {
-        copyPrompt.textContent = "Copy failed";
-      }
+      copyWithStatus(copyPrompt, buildHandoffPrompt(json));
     });
     var copy = mkBtn("Copy JSON", "rl-btn");
     copy.addEventListener("click", function () {
-      try {
-        navigator.clipboard.writeText(json);
-        copy.textContent = "Copied";
-      } catch (e) {
-        copy.textContent = "Copy failed";
-      }
+      copyWithStatus(copy, json);
+    });
+    var download = mkBtn("Download JSON", "rl-btn");
+    download.addEventListener("click", function () {
+      download.textContent = downloadText("redline-queue.json", json, "application/json")
+        ? "Downloaded"
+        : "Download failed";
     });
     var reopenBtn = mkBtn("Reopen", "rl-btn");
     reopenBtn.addEventListener("click", function () {
@@ -1234,6 +1632,7 @@
     toast.appendChild(label);
     toast.appendChild(copyPrompt);
     toast.appendChild(copy);
+    toast.appendChild(download);
     toast.appendChild(reopenBtn);
     toast.appendChild(close);
     rootEl.appendChild(toast);
@@ -1263,7 +1662,11 @@
     archiveCurrentView(); // archive any unsaved marks as a final view
     var q = writeQueue();
     var totalMarks = savedMarkCount();
-    console.log("[redline] queue ready: " + q.views.length + " views, " + totalMarks + " marks");
+    if (persistenceState.ok) {
+      console.log("[redline] queue ready: " + q.views.length + " views, " + totalMarks + " marks");
+    } else {
+      console.warn("[redline] queue is ready in memory but was not saved to browser storage");
+    }
 
     finished = true;
     if (urlTimer) {
@@ -1277,20 +1680,51 @@
     if (panelEl && panelEl.parentNode) panelEl.parentNode.removeChild(panelEl);
     closePopover();
     rootEl.classList.remove("rl-mode-draw");
-    showToast(JSON.stringify(q), q.views.length, totalMarks);
+    showToast(JSON.stringify(q), q.views.length, totalMarks, persistenceState.ok);
   }
 
   // ---- teardown ----------------------------------------------------------
   function teardown() {
+    if (tornDown) return;
+    tornDown = true;
+    finished = true;
     try {
+      drawLayer.removeEventListener("mousedown", handleMouseDown);
+      drawLayer.removeEventListener("touchstart", handleTouchStart, { passive: false });
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("touchmove", handleTouchMove, { passive: false });
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchEnd);
+      window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("scroll", repositionFrames, true);
       window.removeEventListener("resize", repositionFrames, true);
       window.removeEventListener("popstate", checkUrl);
-      if (urlTimer) clearInterval(urlTimer);
+      if (urlTimer) {
+        clearInterval(urlTimer);
+        urlTimer = null;
+      }
+      ownedTimeouts.forEach(function (timeoutId) {
+        clearTimeout(timeoutId);
+      });
+      ownedTimeouts.clear();
+      ownedObjectUrls.forEach(function (url) {
+        URL.revokeObjectURL(url);
+      });
+      ownedObjectUrls.clear();
+      cancelDrag();
+      closePopover();
     } catch (e) {}
     var existing = document.getElementById(ROOT_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     if (rootEl && rootEl.parentNode) rootEl.parentNode.removeChild(rootEl);
+    if (window.__redline === publicApi) {
+      try {
+        delete window.__redline;
+      } catch (e) {
+        window.__redline = undefined;
+      }
+    }
   }
 
   function show() {
@@ -1312,7 +1746,7 @@
   renderCount();
 
   // ---- public API (used by the test harness and re-injection) ------------
-  window.__redline = {
+  publicApi = window.__redline = {
     addMark: addMark,
     removeMark: removeMark,
     saveView: saveView,
@@ -1339,8 +1773,21 @@
     },
     get finished() {
       return finished;
+    },
+    get persistence() {
+      return { ok: persistenceState.ok, error: persistenceState.error };
     }
   };
+
+  if (bootLoaded) window.__redlineQueue = { version: 2, createdAt: createdAt, views: views };
+  if (bootNeedsWrite) {
+    writeQueue();
+    if (!persistenceState.ok) {
+      bootWarning =
+        "Version 1 queue migrated in memory, but browser storage failed. Copy or download it now.";
+    }
+  }
+  if (bootWarning) showNotice(bootWarning);
 
   var resumeMsg =
     views.length > 0

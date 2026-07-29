@@ -1,94 +1,127 @@
 # redline
 
-Design-QA for agent coding. You mark areas on live web pages, write one short
-instruction per mark, and press Finish. redline writes a structured JSON queue that
-a coding agent with browser access (Claude Code, Codex, anything that can drive a
-tab) reads and works through. You make the judgement, the agent does the
-implementation, the queue is the contract.
+Design QA for agent-written interfaces. Mark a region on a live page, write one
+short instruction, and continue reviewing. Redline turns those marks into a
+structured queue with coordinates, computed styles, selectors, and framework
+metadata that a coding agent can implement and verify.
 
-This is not a builder (Onlook, Subframe) and not a human comment tool (Vercel
-Toolbar, Marker.io). The reader is an agent, so every mark carries technical
-ground: CSS selector, computed styles, and React component names when present.
+The human makes the judgement. The agent changes the code. The queue is the
+contract between them.
 
-## What it is
-
-`overlay.js` is the whole tool — one self-contained vanilla JS IIFE, no
-dependencies, no build step. Run it on any tab and a small floating toolbar
-appears.
+Redline is not an MCP server. It is a dependency-free browser overlay that can be
+operated manually or through an MCP/browser-capable coding agent.
 
 ![redline in action](test/screenshot.png)
 
-## Install
+## Why redline
 
-Pick whichever fits — the tool is the same either way.
+General annotation tools are designed for comments between people. Visual builders
+are designed to generate UI. Redline is deliberately narrower: every comment is a
+task for an implementation agent and carries technical evidence from the marked
+page.
 
-- **Console paste (works everywhere, including strict-CSP apps).** Open DevTools,
-  paste the contents of [`overlay.js`](overlay.js) into the console, press Enter.
-- **Bookmarklet (one click, for sites without a strict CSP).** Make a new bookmark
-  with this URL, then click it on any page:
+`overlay.js` is the complete distributed tool: one vanilla JavaScript IIFE, no
+runtime dependencies, server, account, or build step.
 
-  ```
-  javascript:(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/henrikhellstromgbg/redline@main/overlay.js';document.body.appendChild(s);})();
-  ```
+## Security and privacy
 
-  Many apps block remote scripts via Content-Security-Policy; there, use the console
-  paste instead.
-- **Ask your coding agent.** If you're already in an agent session with browser
-  access (Claude Code, Codex, or similar), just say "start a redline review on this
-  page" — the agent reads `overlay.js` and runs it for you. See
-  [`AGENT.md`](AGENT.md).
+Read this before using Redline on a live application:
 
-Running it again is always safe — the overlay is idempotent and resumes an
-in-progress review from `localStorage`.
+- Injected code has the same access to the page as code pasted into DevTools.
+- A queue can contain page URLs, visible DOM text, selectors, computed styles, and
+  React component/source metadata.
+- Queues are stored in the current site's `localStorage` and exposed as
+  `window.__redlineQueue`. Scripts running on that origin can read them.
+- Redline does not upload the queue, but local-only storage does not make sensitive
+  page content harmless. Avoid customer-data or production pages unless this capture
+  and retention model is acceptable.
+- Audit the exact `overlay.js` you run. The documented workflow never injects a
+  mutable remote `main` branch into an authenticated tab.
 
-## How to run a review
+## Install and run
 
-1. Open the page you want to review in Chrome.
-2. Load `overlay.js` — paste it into the DevTools console, or ask your coding agent
-   to start a review. Running it again is safe (idempotent).
-3. Use the toolbar (bottom right):
-   - **Mark** — draw a rectangle over the thing to change. A popover opens: type
-     the instruction, Enter saves, Esc discards. The mark stays as a numbered frame.
-   - **Browse** — pause. Pointer events pass through so you can open a dropdown,
-     modal or date picker. Switch back to Mark to annotate that new state.
-   - The **counter** ("2 views, 5 marks") opens the panel. It lists the current
-     view's marks (click the dot to scroll to and blink a frame, click the text to
-     edit its instruction, Remove to delete) and, below, one collapsed section per
-     saved view (title/path + mark count; click to expand). Saved rows have Edit
-     and Remove, and both write straight to the queue.
-   - **Edit a mark**: click its numbered badge on the page, or its row text in the
-     panel. The popover reopens pre-filled; Enter saves the new text, Esc leaves it
-     unchanged. Only the text changes — the captured element data is kept. Removing
-     the last item from a saved view drops that view.
-   - Editing a **saved** view's item: if you are still on that view's URL, a dashed
-     ghost frame is scrolled into view where the mark sat and the popover anchors to
-     it; if you have navigated away, the popover stays centered with a grey line
-     naming the view and mark number. The ghost clears when you press Enter or Esc.
-   - **Save view** — archive this page's marks and move to the next page. The
-     overlay stays up and switches to Browse so you can navigate.
-   - **Finish** — archive any remaining marks, save the queue, log
-     `[redline] queue ready: N views, M marks`, show a confirmation with **Copy
-     JSON**, **Reopen** and **Close**, and take the frames down for clean
-     screenshots. **Reopen** brings the review back with every view intact if you
-     pressed Finish too early.
-4. Keyboard: `r` = mark, `b` = browse, `Esc` = browse (when not mid-drag). Shortcuts
-   are ignored while you type in a page field.
+Choose one of these local, auditable methods:
 
-### A review can span many pages
+### DevTools console or Snippet
 
-- One review = many **views**, one view per page or state. Each Save view writes
-  the queue incrementally, so nothing is lost.
-- On a single-page-app route change the overlay survives, and any unsaved marks are
-  auto-archived as a view for the page they were drawn on. Coordinates never mix.
-- A hard reload clears the overlay but the saved views stay in `localStorage`.
-  Loading it again resumes the same review instead of starting over. The queue is
-  only cleared when the agent runs `localStorage.removeItem('redline.queue')`.
+Download or clone a reviewed Redline revision. Paste the contents of `overlay.js`
+into the target tab's DevTools console, or save it as a DevTools Snippet for reuse.
+Console injection also works on many applications whose Content Security Policy
+blocks remote script tags.
 
-Tell the agent when you have pressed Finish. It reads the queue and implements.
+### Coding agent
 
-## Data model (version 2)
+Give your agent access to this repository and say:
 
-`localStorage['redline.queue']` (and `window.__redlineQueue`) hold:
+> Start a Redline review on the current page using the local `overlay.js`.
+
+The agent should read the local file and inject its contents into the target tab.
+See [AGENT.md](AGENT.md) for the full workflow.
+
+Redline intentionally does not publish a bookmarklet that loads `@main`. A remote
+bookmarklet has full access to the current tab and can change after it has been
+installed. If you operate your own loader, pin and audit an immutable artifact.
+
+Running `overlay.js` again while a review is active reuses the current instance. A
+full teardown removes the instance's timers and global event listeners.
+
+## Review workflow
+
+1. Open the page or application state to review.
+2. Inject the local `overlay.js`.
+3. Use the toolbar:
+   - **Mark**: draw a rectangle, enter an instruction, and press Enter. Shift+Enter
+     inserts a newline; Esc discards the draft.
+   - **Browse**: pass pointer events through to the application so you can open a
+     menu, modal, date picker, or another state.
+   - **Counter**: open the review panel. Current and saved marks can be located,
+     edited, or removed.
+   - **Save view**: archive the current page/state and continue reviewing.
+   - **Finish**: archive remaining marks, persist the queue, remove review frames,
+     and show copy, reopen, and close actions.
+4. Tell the agent when the review is finished.
+
+Keyboard shortcuts are `r` for Mark, `b` for Browse, and Esc to leave Mark mode.
+Shortcuts are ignored while typing in either the page or Redline.
+
+### Multi-page and SPA reviews
+
+One review can contain many views. Each view retains its own URL, title, viewport,
+scroll position, and marks.
+
+- Save view persists incrementally.
+- SPA URL changes auto-archive unsaved marks under the URL where they were created.
+- A hard reload removes the overlay but keeps successfully saved views in
+  `localStorage`; reinjecting resumes them.
+- Finish followed by Reopen restores the same in-memory review without duplicating
+  global listeners.
+
+If persistence is blocked or full, Redline reports that the review is only available
+in memory and keeps copy/export actions available. It does not label the queue as
+durably saved.
+
+## Agent handoff
+
+After Finish, choose **Copy agent prompt**. The copied prompt contains:
+
+- implementation/triage instructions;
+- the full queue JSON;
+- the exact running `overlay.js` source required to reopen the review visually.
+
+The receiver therefore does not fetch a mutable GitHub branch and cannot
+accidentally triage with a different overlay version. The prompt can be pasted into
+your own next agent turn or sent to a collaborator.
+
+**Copy JSON** remains a smaller manual fallback. Programmatic consumers can call:
+
+```js
+window.__redline.buildHandoffPrompt()
+JSON.stringify(window.__redlineQueue)
+```
+
+## Queue model
+
+`localStorage['redline.queue']` and `window.__redlineQueue` use version 2:
 
 ```json
 {
@@ -96,15 +129,21 @@ Tell the agent when you have pressed Finish. It reads the queue and implements.
   "createdAt": "2026-07-29T09:00:00.000Z",
   "views": [
     {
-      "url": "http://localhost:3000/app/konton/123",
+      "url": "http://localhost:3000/accounts/123",
       "title": "Account 123",
       "savedAt": "2026-07-29T09:03:00.000Z",
-      "viewport": { "w": 1440, "h": 900, "dpr": 2, "scrollX": 0, "scrollY": 300 },
+      "viewport": {
+        "w": 1440,
+        "h": 900,
+        "dpr": 2,
+        "scrollX": 0,
+        "scrollY": 300
+      },
       "items": [
         {
           "id": 1,
           "color": "#e11d48",
-          "instruction": "Dropdown should not have rounded corners",
+          "instruction": "Dropdown should have square corners",
           "rect": { "x": 24, "y": 88, "w": 440, "h": 56 },
           "pageRect": { "x": 24, "y": 388, "w": 440, "h": 56 },
           "scroll": { "x": 0, "y": 300 },
@@ -116,14 +155,15 @@ Tell the agent when you have pressed Finish. It reads the queue and implements.
               "overlap": 0.94,
               "role": "leaf",
               "styles": {
-                "color": "…", "backgroundColor": "…", "fontSize": "…",
-                "fontWeight": "…", "padding": "…", "margin": "…",
-                "borderRadius": "…", "display": "…", "gap": "…",
-                "textTransform": "…", "border": "…"
+                "fontSize": "14px",
+                "borderRadius": "8px"
               },
               "react": {
                 "components": ["ActivityTypeSelect", "ActivityModal"],
-                "source": { "fileName": "src/components/ActivityTypeSelect.tsx", "lineNumber": 42 }
+                "source": {
+                  "fileName": "src/components/ActivityTypeSelect.tsx",
+                  "lineNumber": 42
+                }
               }
             }
           ]
@@ -134,63 +174,46 @@ Tell the agent when you have pressed Finish. It reads the queue and implements.
 }
 ```
 
-- `views` is the review, one entry per page/state. Each view carries its own `url`,
-  `title`, `savedAt`, `viewport` and `items`. Item `id`s restart at 1 per view.
-- `rect` = viewport coords at mark time. `pageRect` = document coords.
-  `scroll` = scroll position then. All three let the agent crop screenshots and
-  re-find the element.
-- `elements` = up to 8 candidates, ranked by overlap (intersection area / element
-  area). A leaf sweep adds small text elements the point grid misses, and each
-  candidate carries `role`: `"leaf"` (area smaller than the mark, usually the exact
-  target) or `"container"` (a wrapper). Wrappers much larger than the mark
-  (area > 4× the rectangle) are penalised so the real target ranks first. The
-  overlay's own nodes are skipped.
-- `selector` is verified against `document.querySelector` before it is written. When
-  an element has no id/class of its own, the selector anchors on the nearest
-  `data-testid`/`data-test`/stable-`id` ancestor (within 10 levels) for a short,
-  stable path — e.g. `[data-testid="deal-sidebar-meta"] > dl:nth-child(1) > dt:nth-child(1)`.
-- `react` is `null` when the page is not React or runs in production (no fiber /
-  no `_debugSource`).
+Important fields:
 
-No server, no persistence beyond `localStorage`.
+- `rect` is the viewport rectangle at mark time; `pageRect` is the document
+  rectangle; `scroll` records the original scroll position.
+- `elements` contains up to eight candidates ranked by overlap. `leaf` candidates
+  are smaller targets within the mark; `container` candidates provide layout context.
+- Every non-null `selector` is verified to resolve uniquely to the exact captured
+  element. Stable IDs/test attributes are preferred; the final fallback is rooted at
+  `body` so equivalent selector suffixes elsewhere cannot collide.
+- `styles` is a deliberately small computed-style snapshot.
+- `react` is `null` when Fiber metadata is unavailable. Some production React builds
+  may expose component names without source locations.
 
-## Files
-
-- `overlay.js` — the tool.
-- `AGENT.md` — the agent-side workflow (load → wait → read queue → implement).
-- `test/demo.html` — a static page with deliberate flaws (uppercase title,
-  over-rounded card/dropdown, missing padding, weak grey, a `data-testid` container
-  with a column of small labels) for testing without a real app.
+Valid version-1 queues are migrated to version 2. Corrupt and future-version queues
+are not silently overwritten.
 
 ## Test
 
-Open `test/demo.html` in a debuggable Chrome, load `overlay.js`, mark a couple of
-the flaws, press Save view / Finish, and read `localStorage['redline.queue']`. See
-the "Testkrav" sections of `PLAN.md` for the full checklist.
+The smoke suite uses Node 22+ built-ins and an installed Chrome/Chromium; the overlay
+itself remains dependency-free.
 
-## Handing the review to an agent
-
-One copy, one paste — that's it. After **Finish**, hit **Copy agent prompt**. That
-copies a complete, self-contained prompt — instructions plus the full queue JSON —
-ready to paste straight into an agent's CLI (Claude Code, Codex, anything that can
-drive a browser). Paste it into your own next agent turn to have it implemented, or
-send it to a collaborator over Slack to hand the review off. Either way the
-receiving agent asks its user one question:
-
-- **implement directly**, working through the queue item by item, or
-- **open the review visually first** — the agent loads `overlay.js` and the queue
-  into the app tab, and the receiver triages with Edit/Remove before saying go.
-
-Nobody touches localStorage or DevTools by hand; that's the agent's job. The prompt
-is also available programmatically as `window.__redline.buildHandoffPrompt()`.
-
-**Manual fallback** (no agent on the receiving end): **Copy JSON** instead, and the
-receiver pastes it into their DevTools console before pasting `overlay.js`:
-
-```js
-localStorage.setItem('redline.queue', JSON.stringify(<QUEUE_JSON>));
-// then paste overlay.js — it resumes the queue automatically
+```sh
+npm test
 ```
 
-Note: view URLs may differ in port/host between machines. Agents should match on
-path, and the ghost frame on saved-item edit only appears when the full URL matches.
+Set `CHROME_BIN=/path/to/chrome` when Chrome is installed in a non-standard location.
+The suite covers selector identity, multi-view persistence, teardown/reinjection,
+Finish/Reopen, handoff integrity, storage failures, clipboard failures, and queue
+compatibility.
+
+For manual exploration, open `test/demo.html` and inject `overlay.js`.
+
+## Repository files
+
+- `overlay.js`: distributed browser overlay.
+- `AGENT.md`: coding-agent operating contract.
+- `PLAN.md`: current product, security, lifecycle, and regression invariants.
+- `test/demo.html`: deliberately flawed visual test page.
+- `test/`: executable browser regression harness.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
