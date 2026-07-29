@@ -1012,6 +1012,7 @@
     if (popoverEl && popoverEl.parentNode) popoverEl.parentNode.removeChild(popoverEl);
     popoverEl = null;
     removeGhost();
+    removePending();
   }
 
   function removeGhost() {
@@ -1023,6 +1024,26 @@
   var dragging = false;
   var dragStart = null;
   var dragEl = null;
+  var pendingEl = null; // preview frame kept visible while the instruction popover is open
+
+  function showPending(rect) {
+    removePending();
+    pendingEl = document.createElement("div");
+    pendingEl.className = "rl-frame";
+    var col = colorFor(marks.length);
+    pendingEl.style.color = col;
+    pendingEl.style.borderColor = col;
+    pendingEl.style.left = rect.x + "px";
+    pendingEl.style.top = rect.y + "px";
+    pendingEl.style.width = rect.w + "px";
+    pendingEl.style.height = rect.h + "px";
+    marksLayer.appendChild(pendingEl);
+  }
+
+  function removePending() {
+    if (pendingEl && pendingEl.parentNode) pendingEl.parentNode.removeChild(pendingEl);
+    pendingEl = null;
+  }
 
   drawLayer.addEventListener("mousedown", function (e) {
     if (mode !== "draw" || finished) return;
@@ -1066,13 +1087,18 @@
       anchorRect: rect,
       text: "",
       onSave: function (val) {
+        removePending();
         addMark(rect, val);
         setMode("draw");
       },
       onCancel: function () {
+        removePending();
         setMode("draw");
       }
     });
+    // After openPopover (whose closePopover would otherwise clear it): keep the
+    // drawn rectangle visible while the instruction is typed.
+    showPending(rect);
   });
 
   // ---- keyboard ----------------------------------------------------------
