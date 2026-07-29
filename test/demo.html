@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>redline demo — intentional flaws</title>
+    <style>
+      :root {
+        --ink: #1f2937;
+        --muted: #9ca3af; /* deliberately weak grey used where it shouldn't be */
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: var(--ink);
+        background: #f9fafb;
+      }
+      header {
+        padding: 24px 32px;
+        background: #111827;
+        color: #fff;
+      }
+      /* FLAW: header title is UPPERCASE, should be sentence case */
+      header h1 {
+        margin: 0;
+        font-size: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      main {
+        max-width: 900px;
+        margin: 32px auto;
+        padding: 0 24px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        /* FLAW: too much border radius, brand wants sharp-ish cards */
+        border-radius: 18px;
+        padding: 20px;
+        margin-bottom: 24px;
+      }
+      .dropdown {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        /* FLAW: rounded corners on a control that should be square */
+        border-radius: 12px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        padding: 10px 14px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .toolbar-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .cta {
+        /* FLAW: missing padding, text is cramped */
+        padding: 0;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        height: 36px;
+        width: 120px;
+      }
+      /* FLAW: label uses the weak muted grey — poor contrast */
+      .field-label {
+        color: var(--muted);
+        font-size: 14px;
+        display: block;
+        margin-bottom: 6px;
+      }
+      .field input {
+        font-size: 14px;
+        padding: 8px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        width: 100%;
+      }
+      /* Meta list: a column of small labels with air between them (leaf-capture target) */
+      .meta {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        row-gap: 16px;
+        column-gap: 24px;
+        margin: 0;
+      }
+      .meta dt {
+        font-size: 14px;
+        color: var(--muted); /* FLAW: weak grey on labels */
+        margin: 0;
+      }
+      .meta dd {
+        font-size: 14px;
+        margin: 0;
+        color: var(--ink);
+      }
+      .spacer {
+        height: 900px;
+      }
+      footer {
+        padding: 24px 32px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="page-title">ACCOUNT SETTINGS</h1>
+    </header>
+    <main>
+      <section class="card" id="card-profile">
+        <div class="toolbar-row">
+          <button class="dropdown" id="activity-type" data-testid="activity-select">
+            <span>Activity: call</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+          <button class="cta" id="save-btn">Save</button>
+        </div>
+      </section>
+
+      <section class="card" id="card-field">
+        <div class="field">
+          <label class="field-label" for="email-input">Email address</label>
+          <input id="email-input" type="email" placeholder="you@example.com" />
+        </div>
+      </section>
+
+      <section class="card" data-testid="deal-sidebar-meta">
+        <dl class="meta">
+          <dt>Owner</dt>
+          <dd>Henrik</dd>
+          <dt>Stage</dt>
+          <dd>Negotiation</dd>
+          <dt>Value</dt>
+          <dd>120 000 kr</dd>
+        </dl>
+      </section>
+
+      <div class="spacer"></div>
+    </main>
+    <footer id="page-footer">Demo page for redline. Scroll target below the fold.</footer>
+  </body>
+</html>
