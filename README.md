@@ -168,20 +168,21 @@ Open `test/demo.html` in a debuggable Chrome, load `overlay.js`, mark a couple o
 the flaws, press Save view / Finish, and read `localStorage['redline.queue']`. See
 the "Testkrav" sections of `PLAN.md` for the full checklist.
 
-## Sharing a review (handoff)
+## Handing the review to an agent
 
-One copy, one paste. After **Finish**, hit **Copy agent prompt**. That copies a
-complete, self-contained prompt — instructions plus the full queue JSON — ready to
-paste into the receiver's agent CLI (Claude Code, Codex, anything that can drive a
-browser). The receiving agent then asks its user one question:
+One copy, one paste — that's it. After **Finish**, hit **Copy agent prompt**. That
+copies a complete, self-contained prompt — instructions plus the full queue JSON —
+ready to paste straight into an agent's CLI (Claude Code, Codex, anything that can
+drive a browser). Paste it into your own next agent turn to have it implemented, or
+send it to a collaborator over Slack to hand the review off. Either way the
+receiving agent asks its user one question:
 
 - **implement directly**, working through the queue item by item, or
 - **open the review visually first** — the agent loads `overlay.js` and the queue
   into the app tab, and the receiver triages with Edit/Remove before saying go.
 
-Send the prompt over Slack or anywhere else. The receiver never touches
-localStorage or DevTools; that is the agent's job. The prompt is also available
-programmatically as `window.__redline.buildHandoffPrompt()`.
+Nobody touches localStorage or DevTools by hand; that's the agent's job. The prompt
+is also available programmatically as `window.__redline.buildHandoffPrompt()`.
 
 **Manual fallback** (no agent on the receiving end): **Copy JSON** instead, and the
 receiver pastes it into their DevTools console before pasting `overlay.js`:
