@@ -112,7 +112,7 @@ async function publishStatus(tabId, state, message) {
   try {
     await chrome.storage.session.set({ [statusKey(tabId)]: status });
   } catch (error) {
-    console.warn("Redline could not persist the tab connection status.", error);
+    console.debug("Redline could not persist the tab connection status.", error);
   }
 
   const isError = state === "error";
@@ -178,7 +178,7 @@ async function connectToTab(tab) {
     await publishStatus(tabId, "connected", "Redline is connected.");
     return { ok: true };
   } catch (error) {
-    console.warn("Redline could not inject the page overlay.", error);
+    console.debug("Redline could not inject the page overlay.", error);
     const message = explainInjectionFailure(error);
     await publishStatus(tabId, "error", message);
     return { ok: false, error: message };
@@ -192,15 +192,15 @@ async function configureSidePanel() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  configureSidePanel().catch(console.error);
+  configureSidePanel().catch(console.debug);
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  configureSidePanel().catch(console.error);
+  configureSidePanel().catch(console.debug);
 });
 
 // Service workers may restart independently of install/startup events.
-configureSidePanel().catch(console.error);
+configureSidePanel().catch(console.debug);
 
 function openRedlineForTab(tab) {
   if (typeof tab.id !== "number") return;
@@ -236,7 +236,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   mutateStoredReview(message)
     .then((review) => sendResponse({ ok: true, review }))
     .catch((error) => {
-      console.error("Redline could not apply a review mutation.", error);
+      console.debug("Redline could not apply a review mutation.", error);
       sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
     });
   return true;

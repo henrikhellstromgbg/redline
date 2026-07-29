@@ -51,6 +51,12 @@ test("current-review writes are serialized by the service worker", () => {
   assert.doesNotMatch(panelScript, /\[STORAGE_KEY\]\s*:/);
 });
 
+test("recoverable connection states do not pollute Chrome extension errors", () => {
+  for (const source of [background, content, panelScript]) {
+    assert.doesNotMatch(source, /console\.(?:warn|error)/);
+  }
+});
+
 test("side-panel intent choices match the portable review enum", () => {
   const values = [...panel.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(values, ["triage", "agent", "designer"]);

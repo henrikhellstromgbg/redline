@@ -107,12 +107,12 @@
       }
       return normalized;
     } catch (error) {
-      console.error("Redline could not open the stored review.", error);
+      console.debug("Redline could not open the stored review.", error);
       preservedCandidate = clone(candidate);
       try {
         await chrome.storage.local.set({ [RECOVERY_KEY]: preservedCandidate });
       } catch (backupError) {
-        console.error("Redline could not create a recovery backup.", backupError);
+        console.debug("Redline could not create a recovery backup.", backupError);
       }
       setStatus("Stored review could not be opened. Export original data before starting over.", "error", { sticky: true });
       return createReview("Recovered review");
@@ -147,7 +147,7 @@
         return review;
       })
       .catch((error) => {
-        console.error("Redline could not save the review.", error);
+        console.debug("Redline could not save the review.", error);
         setStatus("Could not save. The review remains open; export it to keep a copy.", "error", { sticky: true });
         throw error;
       })
@@ -349,7 +349,7 @@
       if (response?.ok === false) throw new Error(response.error || "Redline did not connect.");
       renderConnection("connected", "Connected to this tab");
     } catch (error) {
-      console.warn("Redline content script is unavailable.", error);
+      console.debug("Redline content script is not connected yet.", error);
       try {
         const connection = await chrome.runtime.sendMessage({
           type: "redline:connect-tab",
@@ -360,7 +360,7 @@
         if (response?.ok === false) throw new Error(response.error || "Redline did not connect.");
         renderConnection("connected", "Connected to this tab");
       } catch (connectionError) {
-        console.warn("Redline could not activate on this tab.", connectionError);
+        console.debug("Redline could not activate on this tab.", connectionError);
         renderConnection("error", connectionError.message || "Redline is not active on this tab.");
       }
     }
@@ -371,7 +371,7 @@
     try {
       await sendToActiveTab("redline:refresh", { review });
     } catch (error) {
-      console.warn("Redline could not refresh the page overlay.", error);
+      console.debug("Redline could not refresh the page overlay.", error);
       renderConnection("error", "Connection to this tab was lost.");
     }
   }
@@ -382,7 +382,7 @@
       if (response?.ok === false) throw new Error(response.error || "Annotation could not start.");
       setStatus("Draw around the issue on the page.", "success");
     } catch (error) {
-      console.error("Redline could not start annotation.", error);
+      console.debug("Redline could not start annotation.", error);
       setStatus("Could not start annotation. Start Redline again from the page toolbar.", "error", { sticky: true });
       await connectToActiveTab();
     }
@@ -397,7 +397,7 @@
       if (response?.ok === false) throw new Error(response.error || "Annotation could not be located.");
       setStatus("Annotation highlighted on the page.", "success");
     } catch (error) {
-      console.error("Redline could not locate the annotation.", error);
+      console.debug("Redline could not locate the annotation.", error);
       const activePath = (() => {
         try {
           const url = new URL(activeTab.url);
@@ -418,7 +418,7 @@
       annotationId,
       patch: { instruction }
     }).then(refreshPageOverlay).catch((error) => {
-      console.error("Redline could not update the annotation.", error);
+      console.debug("Redline could not update the annotation.", error);
       setStatus("Could not update this annotation. Its previous text remains saved.", "error", { sticky: true });
     });
   }
@@ -435,7 +435,7 @@
       const nextControl = elements.annotationGroups.querySelector("textarea, button") || elements.annotateButton;
       nextControl.focus();
     }).catch((error) => {
-      console.error("Redline could not remove the annotation.", error);
+      console.debug("Redline could not remove the annotation.", error);
       card?.querySelector(".remove-button")?.focus();
       setStatus("Could not remove this annotation.", "error", { sticky: true });
     });
@@ -466,7 +466,7 @@
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setStatus(preservedCandidate ? "Original data download prepared." : "Review download prepared.", "success");
     } catch (error) {
-      console.error("Redline could not export the review.", error);
+      console.debug("Redline could not export the review.", error);
       setStatus("Could not prepare the review download. Your local review is unchanged.", "error", { sticky: true });
     }
   }
@@ -489,7 +489,7 @@
       );
       await refreshPageOverlay();
     } catch (error) {
-      console.error("Redline could not import the selected file.", error);
+      console.debug("Redline could not import the selected file.", error);
       setStatus("This file is not a compatible Redline review. Your current review is unchanged.", "error", { sticky: true });
     } finally {
       elements.importInput.value = "";
@@ -502,7 +502,7 @@
       await navigator.clipboard.writeText(prompt);
       setStatus("Agent handoff copied.", "success");
     } catch (error) {
-      console.error("Redline could not copy the agent handoff.", error);
+      console.debug("Redline could not copy the agent handoff.", error);
       setStatus("Could not copy. Export the review and give the file to the agent instead.", "error", { sticky: true });
     }
   }
@@ -612,7 +612,7 @@
           renderReview({ preserveEditing: true });
           setStatus("Review updated from the page.", "success");
         } catch (error) {
-          console.error("Redline ignored an invalid review update.", error);
+          console.debug("Redline ignored an invalid review update.", error);
           setStatus("An invalid review update was ignored. Your open review is unchanged.", "error", { sticky: true });
         }
         return;
@@ -645,7 +645,7 @@
         await mutateReview("replace", { review });
       }
     } catch (error) {
-      console.error("Redline could not initialize local storage.", error);
+      console.debug("Redline could not initialize local storage.", error);
       review = createReview("Unsaved review");
       renderReview();
       setStatus("Local storage is unavailable. You can still export the review.", "error", { sticky: true });
@@ -666,7 +666,7 @@
         }
       }
     } catch (error) {
-      console.error("Redline could not inspect the active tab.", error);
+      console.debug("Redline could not inspect the active tab.", error);
       renderConnection("error", "Could not inspect the active tab.");
     }
   }

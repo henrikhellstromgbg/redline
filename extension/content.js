@@ -78,7 +78,7 @@
         try {
           review = Shared.normalizeReview(candidate);
         } catch (error) {
-          console.error("Redline could not open the stored review.", error);
+          console.debug("Redline could not open the stored review.", error);
           await chrome.storage.local.set({ [Shared.RECOVERY_KEY]: candidate });
           review = emptyReview();
           showStatus("Stored review could not be opened. The original data was kept for recovery.", "error", 6000);
@@ -691,7 +691,7 @@
       review = Shared.normalizeReview(candidate);
       renderFrames();
     } catch (error) {
-      console.error("Redline ignored an invalid storage update.", error);
+      console.debug("Redline ignored an invalid storage update.", error);
       showStatus("An invalid review update was ignored.", "error", 5000);
     }
   }
