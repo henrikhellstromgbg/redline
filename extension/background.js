@@ -78,7 +78,9 @@ function statusKey(tabId) {
 
 function pageRestriction(urlString) {
   if (!urlString) {
-    return "Redline cannot access this tab. Open a regular web page and try again.";
+    // Chrome may withhold the URL from a side-panel initiated connection even
+    // after an action click. Let scripting.executeScript enforce access instead.
+    return null;
   }
 
   let url;
@@ -136,6 +138,10 @@ function explainInjectionFailure(error) {
 
   if (/file:\/\//i.test(detail)) {
     return "Redline needs file access for this local page. Enable file URL access for the extension, then try again.";
+  }
+
+  if (/chrome:\/\/|edge:\/\/|about:|extension page|extensions gallery|cannot access contents/i.test(detail)) {
+    return "Redline cannot annotate browser or extension pages. Open a regular web page and try again.";
   }
 
   return "Redline could not connect to this page. Reload the page and try again; your existing review is still safe.";

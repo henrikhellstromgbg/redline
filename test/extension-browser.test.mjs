@@ -227,6 +227,18 @@ test("unpacked extension captures one live annotation and persists exact target 
     (tab) => tab?.status === "complete" && tab.url?.startsWith(fixtureOrigin),
     "the extension-visible fixture tab to load"
   );
+  const unknownUrlConnection = await worker.evaluate(`connectToTab({
+    id: ${browserTab.id},
+    url: ""
+  })`);
+  assert.equal(unknownUrlConnection.ok, true);
+  await worker.evaluate(`chrome.tabs.sendMessage(${browserTab.id}, { type: "redline:disconnect" })`);
+  await poll(
+    () => page.evaluate(`document.querySelectorAll("#redline-shared-review-overlay").length`),
+    (count) => count === 0,
+    "the simulated unknown-URL connection to disconnect"
+  );
+
   const bootstrapTab = await worker.evaluate(`chrome.tabs.create({
     url: chrome.runtime.getURL("sidepanel.html"),
     active: false

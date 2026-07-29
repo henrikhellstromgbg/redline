@@ -36,6 +36,8 @@ test("page injection loads shared contracts before the overlay", () => {
   assert.match(background, /files:\s*\["shared\.js", "targeting\.js", "content\.js"\]/);
   assert.match(background, /redline:connect-tab/);
   assert.match(panelScript, /redline:connect-tab/);
+  assert.match(background, /if \(!urlString\)[\s\S]*?return null/);
+  assert.match(panelScript, /if \(!tab\.url\) return true/);
   assert.doesNotMatch(content, /STORAGE_KEY\s*\|\|/);
   assert.doesNotMatch(panelScript, /STORAGE_KEY\s*\|\|/);
 });

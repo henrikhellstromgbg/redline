@@ -292,7 +292,8 @@
   }
 
   function supportedTab(tab) {
-    if (!tab?.id || !tab.url) return false;
+    if (typeof tab?.id !== "number") return false;
+    if (!tab.url) return true;
     try {
       return SUPPORTED_PROTOCOLS.has(new URL(tab.url).protocol);
     } catch {
