@@ -2,8 +2,9 @@
 
 Design-QA for agent coding. You mark areas on live web pages, write one short
 instruction per mark, and press Finish. redline writes a structured JSON queue that
-a coding agent (Claude Code via Chrome MCP) reads and works through. You make the
-judgement, the agent does the implementation, the queue is the contract.
+a coding agent with browser access (Claude Code, Codex, anything that can drive a
+tab) reads and works through. You make the judgement, the agent does the
+implementation, the queue is the contract.
 
 This is not a builder (Onlook, Subframe) and not a human comment tool (Vercel
 Toolbar, Marker.io). The reader is an agent, so every mark carries technical
@@ -32,9 +33,10 @@ Pick whichever fits — the tool is the same either way.
 
   Many apps block remote scripts via Content-Security-Policy; there, use the console
   paste instead.
-- **Ask your coding agent.** If you're already in a Claude Code (or similar) session
-  with browser access, just say "start a redline review on this page" — the agent
-  reads `overlay.js` and runs it for you. See [`AGENT.md`](AGENT.md).
+- **Ask your coding agent.** If you're already in an agent session with browser
+  access (Claude Code, Codex, or similar), just say "start a redline review on this
+  page" — the agent reads `overlay.js` and runs it for you. See
+  [`AGENT.md`](AGENT.md).
 
 Running it again is always safe — the overlay is idempotent and resumes an
 in-progress review from `localStorage`.
