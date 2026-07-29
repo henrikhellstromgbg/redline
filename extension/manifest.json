@@ -3,7 +3,7 @@
   "name": "Redline shared review",
   "version": "0.1.0",
   "description": "Annotate live interfaces and hand off a local review without screenshots.",
-  "minimum_chrome_version": "114",
+  "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",
     "scripting",

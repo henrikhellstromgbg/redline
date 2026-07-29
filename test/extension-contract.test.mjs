@@ -11,7 +11,7 @@ const panelScript = await readFile(new URL("sidepanel.js", extensionUrl), "utf8"
 
 test("manifest keeps the Chrome experiment local and minimally privileged", () => {
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(Number(manifest.minimum_chrome_version) >= 114, true);
+  assert.equal(Number(manifest.minimum_chrome_version) >= 116, true);
   assert.deepEqual(
     [...manifest.permissions].sort(),
     ["activeTab", "scripting", "sidePanel", "storage"].sort()
@@ -34,6 +34,8 @@ test("every declared extension entry point exists", async () => {
 
 test("page injection loads shared contracts before the overlay", () => {
   assert.match(background, /files:\s*\["shared\.js", "targeting\.js", "content\.js"\]/);
+  assert.match(background, /openPanelOnActionClick: false/);
+  assert.match(background, /chrome\.sidePanel\.open\(\{ tabId: tab\.id \}\)/);
   assert.match(background, /redline:connect-tab/);
   assert.match(panelScript, /redline:connect-tab/);
   assert.match(background, /if \(!urlString\)[\s\S]*?return null/);

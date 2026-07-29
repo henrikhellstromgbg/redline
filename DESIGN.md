@@ -133,7 +133,7 @@
   - Target evidence captured only when an annotation is completed.
   - Route observation may update presentation but cannot determine data correctness.
 - Compatibility constraints:
-  - Chrome 114+ for Side Panel API.
+  - Chrome 116+ for explicit `sidePanel.open()` from the toolbar gesture.
   - Use `activeTab`, `scripting`, `sidePanel`, and `storage`; no broad host permissions by default.
   - Content script runs isolated; private framework internals are out of scope.
 - Test/screenshot expectations:

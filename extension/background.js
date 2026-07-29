@@ -186,7 +186,9 @@ async function connectToTab(tab) {
 }
 
 async function configureSidePanel() {
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  // Keep the action click available to this service worker. It opens the panel
+  // explicitly below so the same user gesture also grants activeTab access.
+  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -200,12 +202,22 @@ chrome.runtime.onStartup.addListener(() => {
 // Service workers may restart independently of install/startup events.
 configureSidePanel().catch(console.error);
 
-chrome.action.onClicked.addListener((tab) => {
-  connectToTab(tab).catch(async (error) => {
-    if (typeof tab.id !== "number") return;
-    await publishStatus(tab.id, "error", explainInjectionFailure(error));
+function openRedlineForTab(tab) {
+  if (typeof tab.id !== "number") return;
+  const opening = chrome.sidePanel.open({ tabId: tab.id }).catch(async (error) => {
+    const message = explainInjectionFailure(error);
+    await publishStatus(tab.id, "error", message);
+    return { ok: false, error: message };
   });
-});
+  const connecting = connectToTab(tab).catch(async (error) => {
+    const message = explainInjectionFailure(error);
+    await publishStatus(tab.id, "error", message);
+    return { ok: false, error: message };
+  });
+  return Promise.all([opening, connecting]);
+}
+
+chrome.action.onClicked.addListener(openRedlineForTab);
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "redline:connect-tab") {
