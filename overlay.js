@@ -3,8 +3,9 @@
  * Inject into any tab via Chrome MCP javascript_tool or paste into DevTools.
  * Idempotent: re-running reuses the existing instance instead of duplicating.
  *
- * v0.4: multi-view review (version 2 queue), testid-anchored selectors,
- * leaf-element capture, edit/remove with ghost frame, reopen after finish.
+ * v0.5: multi-view review (version 2 queue), testid-anchored selectors,
+ * leaf-element capture, edit/remove with ghost frame, reopen after finish,
+ * one-paste agent handoff prompt.
  */
 (function () {
   "use strict";
@@ -1129,6 +1130,44 @@
   urlTimer = setInterval(checkUrl, 500);
 
   // ---- finish ------------------------------------------------------------
+  // Build a complete handoff prompt for another person's agent CLI: paste it
+  // into Claude Code / Codex and the receiving agent takes over from there.
+  function buildHandoffPrompt(json) {
+    var q = json || JSON.stringify({ version: 2, createdAt: createdAt, views: views });
+    return [
+      "You are receiving a redline design review: a queue of visual fixes a designer",
+      "marked on a live web app. Tool reference: https://github.com/henrikhellstromgbg/redline",
+      "(see AGENT.md there for the full workflow). The queue JSON is embedded at the",
+      "bottom of this prompt.",
+      "",
+      "First ask me ONE question: should you",
+      "(a) implement the queue directly, or",
+      "(b) open the review visually in my browser first so I can triage it (edit or",
+      "    remove items) before you implement?",
+      "",
+      "If (a) implement:",
+      "- Each item = one task. Use instruction + selector + computed styles as ground",
+      "  truth. Candidates with role \"leaf\" are usually the exact target; \"container\"",
+      "  rows are wrappers for context. Selectors are pre-verified with querySelector.",
+      "- Each view has the url it was marked on (match on path if host/port differ).",
+      "- Verify each fix in the browser, then clear the queue:",
+      "  localStorage.removeItem('redline.queue')",
+      "",
+      "If (b) triage first:",
+      "- In a tab running this app, write the JSON below into",
+      "  localStorage['redline.queue'].",
+      "- Fetch https://raw.githubusercontent.com/henrikhellstromgbg/redline/main/overlay.js",
+      "  yourself and inject its CONTENTS into the tab via the Chrome MCP",
+      "  javascript_tool (do not add a remote <script> tag, strict CSP will block it).",
+      "  The overlay resumes the queue automatically.",
+      "- Tell me review mode is on, wait until I say I have pressed Finish, then",
+      "  re-read the queue and proceed as in (a).",
+      "",
+      "Review queue JSON:",
+      q
+    ].join("\n");
+  }
+
   function showToast(json, viewCount, markCount) {
     var toast = document.createElement("div");
     toast.className = "rl-toast";
@@ -1139,6 +1178,15 @@
       (viewCount === 1 ? " view, " : " views, ") +
       markCount +
       (markCount === 1 ? " mark" : " marks");
+    var copyPrompt = mkBtn("Copy agent prompt", "rl-btn");
+    copyPrompt.addEventListener("click", function () {
+      try {
+        navigator.clipboard.writeText(buildHandoffPrompt(json));
+        copyPrompt.textContent = "Copied";
+      } catch (e) {
+        copyPrompt.textContent = "Copy failed";
+      }
+    });
     var copy = mkBtn("Copy JSON", "rl-btn");
     copy.addEventListener("click", function () {
       try {
@@ -1158,6 +1206,7 @@
       if (toast.parentNode) toast.parentNode.removeChild(toast);
     });
     toast.appendChild(label);
+    toast.appendChild(copyPrompt);
     toast.appendChild(copy);
     toast.appendChild(reopenBtn);
     toast.appendChild(close);
@@ -1243,6 +1292,7 @@
     saveView: saveView,
     finish: finish,
     reopen: reopen,
+    buildHandoffPrompt: buildHandoffPrompt,
     done: finish, // v0.1 alias
     setMode: setMode,
     teardown: teardown,

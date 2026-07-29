@@ -168,19 +168,27 @@ the "Testkrav" sections of `PLAN.md` for the full checklist.
 
 ## Sharing a review (handoff)
 
-The whole review is one JSON payload — that makes it portable between people. Typical flow:
+One copy, one paste. After **Finish**, hit **Copy agent prompt**. That copies a
+complete, self-contained prompt — instructions plus the full queue JSON — ready to
+paste into the receiver's agent CLI (Claude Code, Codex, anything that can drive a
+browser). The receiving agent then asks its user one question:
 
-1. Reviewer finishes with **Finish** and hits **Copy JSON** (or reads `localStorage['redline.queue']`).
-2. Send the JSON to a collaborator (Slack, file, whatever). Suggested filename: `redline-queue.json`.
-3. The receiver either:
-   - **Feeds it straight to their coding agent** together with `AGENT.md`. No browser needed — the queue is the contract.
-   - **Triages it visually first**: on their own local build of the same app, set the queue and inject the overlay. The resume logic picks it up and the panel shows every view; use Edit/Remove to drop items that are not a priority, then Finish.
+- **implement directly**, working through the queue item by item, or
+- **open the review visually first** — the agent fetches `overlay.js` from this
+  repo, loads the queue into the app tab, and the receiver triages with Edit/Remove
+  before saying go.
 
-Import snippet (DevTools console or agent via Chrome MCP), with the JSON pasted in place of `<QUEUE_JSON>`:
+Send the prompt over Slack or anywhere else. The receiver never touches
+localStorage or DevTools; that is the agent's job. The prompt is also available
+programmatically as `window.__redline.buildHandoffPrompt()`.
+
+**Manual fallback** (no agent on the receiving end): **Copy JSON** instead, and the
+receiver imports it in their DevTools console before pasting `overlay.js`:
 
 ```js
 localStorage.setItem('redline.queue', JSON.stringify(<QUEUE_JSON>));
-// then inject overlay.js — it resumes the queue automatically
+// then paste overlay.js — it resumes the queue automatically
 ```
 
-Note: view URLs may differ in port/host between machines. Agents should match on path, and the ghost frame on saved-item edit only appears when the full URL matches.
+Note: view URLs may differ in port/host between machines. Agents should match on
+path, and the ghost frame on saved-item edit only appears when the full URL matches.

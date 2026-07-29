@@ -170,3 +170,18 @@ Henriks feedback: efter Finish finns inget sätt att återgå till redigering.
 1. Finish-toasten får en tredje knapp: **Reopen** (samma rl-btn-stil som Copy JSON/Close). Klick: toasten tas bort och reviewen återöppnas med hela kön intakt (alla vyer + räknare + panel-tillgång), i browse-läge. Tekniskt: den finished-instansen river sig själv och kör om init-flödet (samma resume-väg som vid återinjicering, kön ligger redan i localStorage). Enklast: bryt ut init till en intern funktion eller låt Reopen göra teardown + köra en sparad kopia av hela IIFE:n är INTE rimligt — i stället: sätt finished = false, återskapa drawLayer/toolbar/marksLayer (de revs vid finish), läs INTE om kön från localStorage (views-arrayen finns kvar i minnet). Verifiera att event-lyssnare (urlTimer, keyboard) återaktiveras korrekt.
 2. Konsollogg: `[redline] review reopened: N views, M marks`.
 3. **Testkrav:** i riktig Chrome: Finish → Reopen → toolbar tillbaka med rätt räknare, markera en ny punkt, Finish igen → kön innehåller gamla + nya vyer; ingen dubblerad urlTimer/lyssnare (t.ex. räkna console-loggar vid URL-byte); Esc/kortkommandon fungerar efter Reopen.
+
+---
+
+# v0.5 — one-paste handoff (Copy agent prompt)
+
+Henriks feedback: för många steg i delningen. Målet: EN kopiering → EN inklistring i mottagarens agent-CLI.
+
+1. Finish-toasten får knappen **Copy agent prompt** som primär (före Copy JSON). Den kopierar en komplett engelsk prompt med kö-JSON:en inbäddad sist. Prompten instruerar mottagarens agent att:
+   - Först fråga användaren: (a) implementera kön direkt, eller (b) öppna reviewen visuellt i användarens browser för triage först.
+   - Vid (a): behandla varje item som en task (selector + styles + leaf/container + instruction), verifiera i browsern, och efteråt `localStorage.removeItem('redline.queue')`.
+   - Vid (b): skriv JSON till localStorage i en flik som kör appen, hämta overlay.js från https://raw.githubusercontent.com/henrikhellstromgbg/redline/main/overlay.js och injicera INNEHÅLLET via Chrome MCP javascript_tool (inte script-tag, CSP), vänta på användarens Finish, läs om kön, kör (a).
+   - Referens: https://github.com/henrikhellstromgbg/redline (AGENT.md).
+2. Exponera promptbyggaren som `window.__redline.buildHandoffPrompt()` så agenter kan hämta den programmatiskt.
+3. README: förenkla "Sharing a review" till det nya enstegsflödet (behåll manuella vägen som fallback).
+4. Testkrav: buildHandoffPrompt() innehåller giltig JSON (JSON.parse på delen efter markören lyckas), rätt URL:er, och Copy agent prompt-knappen finns i toasten.
