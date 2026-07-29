@@ -143,7 +143,9 @@ function explainInjectionFailure(error) {
 
 async function connectToTab(tab) {
   const tabId = tab.id;
-  if (typeof tabId !== "number") return;
+  if (typeof tabId !== "number") {
+    return { ok: false, error: "Redline could not identify this tab." };
+  }
 
   await chrome.sidePanel.setOptions({
     tabId,
@@ -154,7 +156,7 @@ async function connectToTab(tab) {
   const restriction = pageRestriction(tab.url);
   if (restriction) {
     await publishStatus(tabId, "error", restriction);
-    return;
+    return { ok: false, error: restriction };
   }
 
   await publishStatus(tabId, "connecting", "Connecting to this tab…");
@@ -168,9 +170,12 @@ async function connectToTab(tab) {
     });
 
     await publishStatus(tabId, "connected", "Redline is connected.");
+    return { ok: true };
   } catch (error) {
     console.warn("Redline could not inject the page overlay.", error);
-    await publishStatus(tabId, "error", explainInjectionFailure(error));
+    const message = explainInjectionFailure(error);
+    await publishStatus(tabId, "error", message);
+    return { ok: false, error: message };
   }
 }
 
@@ -196,7 +201,19 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "redline:connect-tab") {
+    if (sender.url !== chrome.runtime.getURL(PANEL_PATH)) {
+      sendResponse({ ok: false, error: "Only the Redline panel can connect a tab." });
+      return false;
+    }
+    chrome.tabs.get(message.tabId)
+      .then(connectToTab)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, error: explainInjectionFailure(error) }));
+    return true;
+  }
+
   if (message?.type !== "redline:mutate-review") return false;
   mutateStoredReview(message)
     .then((review) => sendResponse({ ok: true, review }))

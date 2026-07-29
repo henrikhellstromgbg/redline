@@ -349,7 +349,19 @@
       renderConnection("connected", "Connected to this tab");
     } catch (error) {
       console.warn("Redline content script is unavailable.", error);
-      renderConnection("error", "Redline is not active on this tab.");
+      try {
+        const connection = await chrome.runtime.sendMessage({
+          type: "redline:connect-tab",
+          tabId: activeTab.id
+        });
+        if (!connection?.ok) throw new Error(connection?.error || "Redline could not connect.");
+        const response = await chrome.tabs.sendMessage(activeTab.id, { type: "redline:ping" });
+        if (response?.ok === false) throw new Error(response.error || "Redline did not connect.");
+        renderConnection("connected", "Connected to this tab");
+      } catch (connectionError) {
+        console.warn("Redline could not activate on this tab.", connectionError);
+        renderConnection("error", connectionError.message || "Redline is not active on this tab.");
+      }
     }
   }
 

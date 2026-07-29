@@ -227,14 +227,28 @@ test("unpacked extension captures one live annotation and persists exact target 
     (tab) => tab?.status === "complete" && tab.url?.startsWith(fixtureOrigin),
     "the extension-visible fixture tab to load"
   );
-  const connected = await worker.evaluate(`(async () => {
-    const tab = await chrome.tabs.get(${browserTab.id});
-    await connectToTab(tab);
-    const key = "redline:tab-status:" + tab.id;
-    const stored = await chrome.storage.session.get(key);
-    return { tabId: tab.id, tab, status: stored[key] };
-  })()`);
-  assert.equal(connected.status?.state, "connected", `${connected.status?.message} ${JSON.stringify(connected.tab)}`);
+  const bootstrapTab = await worker.evaluate(`chrome.tabs.create({
+    url: chrome.runtime.getURL("sidepanel.html"),
+    active: false
+  })`);
+  const bootstrapTarget = await waitForTarget(
+    (target) => target.type === "page" && target.url.endsWith("/sidepanel.html"),
+    "the bootstrap review panel"
+  );
+  const bootstrapPanel = await new CdpClient(bootstrapTarget.webSocketDebuggerUrl).connect();
+  await bootstrapPanel.call("Runtime.enable");
+  try {
+    await poll(
+      () => bootstrapPanel.evaluate(`document.querySelector("#connection-status")?.textContent`),
+      (status) => status === "Connected to this tab",
+      "the panel-driven tab connection"
+    );
+  } finally {
+    await bootstrapPanel.call("Page.close").catch(() => {});
+    bootstrapPanel.close();
+    await worker.evaluate(`chrome.tabs.remove(${bootstrapTab.id}).catch(() => {})`);
+  }
+  const connected = { tabId: browserTab.id };
 
   await poll(
     () => page.evaluate(`document.querySelectorAll("#redline-shared-review-overlay").length`),
